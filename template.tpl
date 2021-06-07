@@ -315,24 +315,29 @@ if ((data.claimGetRequests && requestPath === '/i') || requestPath === data.cust
   // Claim the requst
   claimRequest();
   log('Snowplow tracker protocol request, claimed...');
+  setResponseStatus(200);
   
   let events;
-  if (getRequestMethod() === 'GET') {
+  const requestMethod = getRequestMethod();
+  if (requestMethod === 'GET') {
     events = [ getRequestQueryParameters() ];
     setPixelResponse();
-  } else {
+  } else if (requestMethod === 'POST') {
     events = payloadToSnowplowEvents(getRequestBody());
     setResponseBody("ok");
+  } else if (requestMethod === 'OPTIONS') {
+    sendResponse();
   }
   
-  events.forEach((event) => {
-    // Pass the event to a virtual container
-    runContainer(mapSnowplowEventToCommonEvent(event), () => {
-      log('Tags complete, sending response...');
-      setResponseStatus(200);
-      sendResponse();
+  if (events) {
+    events.forEach((event) => {
+      // Pass the event to a virtual container
+      runContainer(mapSnowplowEventToCommonEvent(event), () => {
+        log('Tags complete, sending response...');
+        sendResponse();
+      });
     });
-  });
+  }
 }
 
 
