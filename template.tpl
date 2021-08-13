@@ -42,6 +42,14 @@ ___TEMPLATE_PARAMETERS___
     "alwaysInSummary": true
   },
   {
+    "type": "CHECKBOX",
+    "name": "populateGaProps",
+    "checkboxText": "Populate GAv4 Client Properties",
+    "simpleValueType": true,
+    "defaultValue": true,
+    "alwaysInSummary": true
+  },
+  {
     "type": "GROUP",
     "name": "spJsSettings",
     "displayName": "sp.js settings",
@@ -267,6 +275,14 @@ const mapSnowplowEventToCommonEvent = (event) => {
     host: host
   };
   
+  if (data.populateGaProps) {
+    commonEvent.ga_session_id = event.sid;
+    commonEvent.ga_session_number = event.vid;
+    commonEvent["x-ga-mp2-seg"] = "1";
+    commonEvent["x-ga-protocol_version"] = "2";
+    // commonEvent["x-ga-page_id"] = event. // Complete once contexts are split out
+  }
+  
   if (data.ipInclude && !anonymous) {
     commonEvent.ip_override = getRemoteAddress();
   }
@@ -283,6 +299,8 @@ if (requestParts.length > 2) {
   if (data.serveSpJs && (requestedSpJsName === data.customSpJsName || requestedSpJsName === 'sp.js')) {
     claimRequest();
     log('Snowplow sp.js request, claimed...');
+    
+    setResponseHeader('Content-Type', 'application/javascript');
   
     const cachedSpJs = templateDataStorage.getItemCopy('snowplow_js_' + requestedSpJsVersion);
   
