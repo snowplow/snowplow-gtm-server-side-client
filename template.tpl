@@ -302,7 +302,7 @@ const mapSnowplowEventToTagEvent = (event) => {
   const contexts = getContexts(event);
   if (contexts) {
     contexts.forEach((c) => {
-      commonEvent["x-sp-context_" + parseSchemaToMajor(c.schema)] = c.data;
+      commonEvent["x-sp-context_" + parseSchemaToMajor(c.schema).toLowerCase()] = c.data;
     });
     commonEvent["x-sp-contexts"] = contexts;
   }
