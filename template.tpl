@@ -168,13 +168,18 @@ const base64urldecode = (data) => {
   return fromBase64(b64Data);
 };
 
-const sendResponse = () => {
+const sendResponse = (statusCode, body, headers) => {
   // Prevent CORS errors
   if (origin) {
     setResponseHeader('Access-Control-Allow-Origin', origin);
     setResponseHeader('Access-Control-Allow-Credentials', 'true');
     setResponseHeader('Access-Control-Allow-Headers', 'Content-Type, SP-Anonymous');
     setResponseHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  }
+  setResponseStatus(statusCode || 200);
+  setResponseBody(body);
+  for (const key in headers) {
+    setResponseHeader(key, headers[key]);
   }
   returnResponse();
 };
