@@ -341,10 +341,9 @@ if (requestParts.length > 2) {
   if (data.serveSpJs && (requestedSpJsName === data.customSpJsName || requestedSpJsName === 'sp.js')) {
     claimRequest();
     log('Snowplow sp.js request, claimed...');
-    
-    setResponseHeader('Content-Type', 'application/javascript');
   
     const cachedSpJs = templateDataStorage.getItemCopy('snowplow_js_' + requestedSpJsVersion);
+    const cachedSpJsHeaders = templateDataStorage.getItemCopy('snowplow_js_headers_' + requestedSpJsVersion) || {};
   
     if (!cachedSpJs) {
       let spJsLocation = 'https://cdn.jsdelivr.net/npm/@snowplow/javascript-tracker@' + requestedSpJsVersion + '/dist/sp.js';
@@ -355,17 +354,15 @@ if (requestParts.length > 2) {
       sendHttpGet(spJsLocation, (statusCode, headers, body) => {
         if (statusCode === 200) {
           templateDataStorage.setItemCopy('snowplow_js_' + requestedSpJsVersion, body);
-          setResponseBody(body);
-          data.gtmOnSuccess();
-          sendResponse();
+          templateDataStorage.setItemCopy('snowplow_js_headers_' + requestedSpJsVersion, body);          
+          sendResponse(200, body, headers);
         } else {
-          data.gtmOnFailure();
+          log('Failed to download sp.js: ', body);
+          sendResponse(404, body, headers);
         }
       }, {timeout: 5000});
     } else {
-      setResponseBody(cachedSpJs);
-      data.gtmOnSuccess();
-      sendResponse();
+      sendResponse(200, cachedSpJs, cachedSpJsHeaders);
     }
   }
 }
