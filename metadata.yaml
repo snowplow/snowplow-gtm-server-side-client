@@ -1,5 +1,11 @@
 homepage: "https://www.snowplowanalytics.com"
 documentation: "https://docs.snowplowanalytics.com/docs"
 versions:
+  # Latest version
+  - sha: c8d253b110d7aeb636a517f132c1a53f51d72fce
+    changeNotes: |2
+      Rename client to Snowplow (#7) 
+      Improve sp.js version handling (#6)
+  # Older versions
   - sha: 9c65963e7837e651f64dafa2e22a7306b8ba62a3
     changeNotes: Initial Version
