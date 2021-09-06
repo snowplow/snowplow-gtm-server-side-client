@@ -1,4 +1,4 @@
-﻿___TERMS_OF_SERVICE___
+___TERMS_OF_SERVICE___
 
 By creating or modifying this file you agree to Google Tag Manager's Community
 Template Gallery Developer Terms of Service available at
@@ -143,6 +143,7 @@ const parseUrl = require('parseUrl');
 const JSON = require('JSON');
 const getType = require('getType');
 const fromBase64 = require('fromBase64');
+const makeInteger = require('makeInteger');
 
 const requestPath = getRequestPath();
 const ua = getRequestHeader('user-agent');
@@ -353,18 +354,18 @@ if (requestParts.length > 2) {
   
     if (!cachedSpJs) {
       let spJsLocation = 'https://cdn.jsdelivr.net/npm/@snowplow/javascript-tracker@' + requestedSpJsVersion + '/dist/sp.js';
-      if (requestedSpJsVersion.charAt(0) === '2') {
+      if (makeInteger(requestedSpJsVersion.charAt(0)) <= 2) {
         spJsLocation = 'https://cdn.jsdelivr.net/gh/snowplow/sp-js-assets@' + requestedSpJsVersion + '/sp.js';
       }
       
       sendHttpGet(spJsLocation, (statusCode, headers, body) => {
-        if (statusCode === 200) {
+        if (statusCode >= 200 && statusCode < 300) {
           templateDataStorage.setItemCopy('snowplow_js_' + requestedSpJsVersion, body);
           templateDataStorage.setItemCopy('snowplow_js_headers_' + requestedSpJsVersion, body);          
           sendResponse(200, body, headers);
         } else {
           log('Failed to download sp.js: ', body);
-          sendResponse(404, body, headers);
+          sendResponse(statusCode, body, headers);
         }
       }, {timeout: 5000});
     } else {
