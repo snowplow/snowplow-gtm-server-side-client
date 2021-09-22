@@ -19,7 +19,7 @@ ___INFO___
   ],
   "version": 1,
   "securityGroups": [],
-  "displayName": "Snowplow",
+  "displayName": "Snowplow Client",
   "brand": {
     "id": "brand_dummy",
     "displayName": "Snowplow Analytics",
