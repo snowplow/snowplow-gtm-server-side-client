@@ -317,6 +317,25 @@ const mapSnowplowEventToTagEvent = (event) => {
       commonEvent["x-sp-context_" + parseSchemaToMajor(c.schema).toLowerCase()] = c.data;
     });
     commonEvent["x-sp-contexts"] = contexts;
+    
+    if (commonEvent["x-sp-context_com_google_tag-manager_server-side_user_data_jsonschema_1"]) {
+      let userData = commonEvent["x-sp-context_com_google_tag-manager_server-side_user_data_jsonschema_1"];
+      commonEvent.user_data = {
+        email_address: userData.email_address,
+        phone_number: userData.phone_number        
+      };
+      if (userData.address) {
+        commonEvent.user_data.address = {
+          first_name: userData.address.first_name,
+          last_name: userData.address.last_name,
+          street: userData.address.street,
+          city: userData.address.city,
+          region: userData.address.region,
+          postal_code: userData.address.postal_code,
+          country: userData.address.country
+        };
+      }
+    }
   }
     
   if (data.populateGaProps) {
@@ -329,7 +348,6 @@ const mapSnowplowEventToTagEvent = (event) => {
       commonEvent["x-ga-page_id"] = 
         commonEvent["x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1"].id;
     }
-    
   }
   
   if (data.ipInclude && !anonymous) {
@@ -667,7 +685,7 @@ scenarios:
     ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\"},\"\
     x-sp-anonymous\":undefined,\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
-    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_PerformanceTiming_jsonschema_1\"\
+    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
     :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
     :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
     :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
@@ -728,7 +746,7 @@ scenarios:
     ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\",\"\
     uid\":\"snow123\"},\"x-sp-anonymous\":undefined,\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
-    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_PerformanceTiming_jsonschema_1\"\
+    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
     :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
     :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
     :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
@@ -790,7 +808,7 @@ scenarios:
     ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\",\"\
     uid\":\"snow123\"},\"x-sp-anonymous\":\"*\",\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
-    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_PerformanceTiming_jsonschema_1\"\
+    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
     :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
     :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
     :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
@@ -865,7 +883,79 @@ scenarios:
     assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Headers', 'Content-Type, SP-Anonymous');
     assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
     assertApi('returnResponse').wasCalled();
-    assertApi('runContainer').wasCalledWith({"event_name":"page_view","client_id":"d54a1904-7798-401a-be0b-1a83bea73634","language":"en-GB","page_encoding":"UTF-8","page_hostname":"snowplowanalytics.com","page_location":"https://snowplowanalytics.com/","page_path":"/","page_referrer":"referer","page_title":"Collect, manage and operationalize behavioral data at scale | Snowplow","screen_resolution":"1920x1080","user_id":undefined,"viewport_size":"745x1302","user_agent":"user-agent","origin":"origin","host":"host","x-sp-tp2":{"e":"pv","url":"https://snowplowanalytics.com/","page":"Collect, manage and operationalize behavioral data at scale | Snowplow","tv":"js-2.18.1","tna":"sp","aid":"website","p":"web","tz":"Europe/London","lang":"en-GB","cs":"UTF-8","res":"1920x1080","cd":"24","cookie":"1","eid":"8676de79-0eba-4435-ad95-8a41a8a0129c","dtm":"1628586512246","cx":"eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0","vp":"745x1302","ds":"730x12393","vid":"1","sid":"e7580b71-227b-4868-9ea9-322a263ce885","duid":"d54a1904-7798-401a-be0b-1a83bea73634","stm":"1628586512248"},"x-sp-anonymous":undefined,"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1":{"id":"a86c42e5-b831-45c8-b706-e214c26b4b3d"},"x-sp-context_org_w3_PerformanceTiming_jsonschema_1":{"navigationStart":1628586508610,"unloadEventStart":0,"unloadEventEnd":0,"redirectStart":0,"redirectEnd":0,"fetchStart":1628586508610,"domainLookupStart":1628586508637,"domainLookupEnd":1628586508691,"connectStart":1628586508691,"connectEnd":1628586508763,"secureConnectionStart":1628586508721,"requestStart":1628586508763,"responseStart":1628586508797,"responseEnd":1628586508821,"domLoading":1628586509076,"domInteractive":1628586509381,"domContentLoadedEventStart":1628586509408,"domContentLoadedEventEnd":1628586509417,"domComplete":1628586510332,"loadEventStart":1628586510332,"loadEventEnd":1628586510334},"x-sp-contexts":[{"schema":"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0","data":{"id":"a86c42e5-b831-45c8-b706-e214c26b4b3d"}},{"schema":"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0","data":{"navigationStart":1628586508610,"unloadEventStart":0,"unloadEventEnd":0,"redirectStart":0,"redirectEnd":0,"fetchStart":1628586508610,"domainLookupStart":1628586508637,"domainLookupEnd":1628586508691,"connectStart":1628586508691,"connectEnd":1628586508763,"secureConnectionStart":1628586508721,"requestStart":1628586508763,"responseStart":1628586508797,"responseEnd":1628586508821,"domLoading":1628586509076,"domInteractive":1628586509381,"domContentLoadedEventStart":1628586509408,"domContentLoadedEventEnd":1628586509417,"domComplete":1628586510332,"loadEventStart":1628586510332,"loadEventEnd":1628586510334}}],"ga_session_id":"e7580b71-227b-4868-9ea9-322a263ce885","ga_session_number":"1","x-ga-mp2-seg":"1","x-ga-protocol_version":"2","x-ga-page_id":"a86c42e5-b831-45c8-b706-e214c26b4b3d","ip_override":"1.2.3.4"}, runContainerCb);
+    assertApi('runContainer').wasCalledWith({"event_name":"page_view","client_id":"d54a1904-7798-401a-be0b-1a83bea73634","language":"en-GB","page_encoding":"UTF-8","page_hostname":"snowplowanalytics.com","page_location":"https://snowplowanalytics.com/","page_path":"/","page_referrer":"referer","page_title":"Collect, manage and operationalize behavioral data at scale | Snowplow","screen_resolution":"1920x1080","user_id":undefined,"viewport_size":"745x1302","user_agent":"user-agent","origin":"origin","host":"host","x-sp-tp2":{"e":"pv","url":"https://snowplowanalytics.com/","page":"Collect, manage and operationalize behavioral data at scale | Snowplow","tv":"js-2.18.1","tna":"sp","aid":"website","p":"web","tz":"Europe/London","lang":"en-GB","cs":"UTF-8","res":"1920x1080","cd":"24","cookie":"1","eid":"8676de79-0eba-4435-ad95-8a41a8a0129c","dtm":"1628586512246","cx":"eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0","vp":"745x1302","ds":"730x12393","vid":"1","sid":"e7580b71-227b-4868-9ea9-322a263ce885","duid":"d54a1904-7798-401a-be0b-1a83bea73634","stm":"1628586512248"},"x-sp-anonymous":undefined,"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1":{"id":"a86c42e5-b831-45c8-b706-e214c26b4b3d"},"x-sp-context_org_w3_performancetiming_jsonschema_1":{"navigationStart":1628586508610,"unloadEventStart":0,"unloadEventEnd":0,"redirectStart":0,"redirectEnd":0,"fetchStart":1628586508610,"domainLookupStart":1628586508637,"domainLookupEnd":1628586508691,"connectStart":1628586508691,"connectEnd":1628586508763,"secureConnectionStart":1628586508721,"requestStart":1628586508763,"responseStart":1628586508797,"responseEnd":1628586508821,"domLoading":1628586509076,"domInteractive":1628586509381,"domContentLoadedEventStart":1628586509408,"domContentLoadedEventEnd":1628586509417,"domComplete":1628586510332,"loadEventStart":1628586510332,"loadEventEnd":1628586510334},"x-sp-contexts":[{"schema":"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0","data":{"id":"a86c42e5-b831-45c8-b706-e214c26b4b3d"}},{"schema":"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0","data":{"navigationStart":1628586508610,"unloadEventStart":0,"unloadEventEnd":0,"redirectStart":0,"redirectEnd":0,"fetchStart":1628586508610,"domainLookupStart":1628586508637,"domainLookupEnd":1628586508691,"connectStart":1628586508691,"connectEnd":1628586508763,"secureConnectionStart":1628586508721,"requestStart":1628586508763,"responseStart":1628586508797,"responseEnd":1628586508821,"domLoading":1628586509076,"domInteractive":1628586509381,"domContentLoadedEventStart":1628586509408,"domContentLoadedEventEnd":1628586509417,"domComplete":1628586510332,"loadEventStart":1628586510332,"loadEventEnd":1628586510334}}],"ga_session_id":"e7580b71-227b-4868-9ea9-322a263ce885","ga_session_number":"1","x-ga-mp2-seg":"1","x-ga-protocol_version":"2","x-ga-page_id":"a86c42e5-b831-45c8-b706-e214c26b4b3d","ip_override":"1.2.3.4"}, runContainerCb);
+- name: Container run with user_data context
+  code: "let page_view_tp2 = json.stringify({\n  \"schema\": \"iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4\"\
+    ,\n  \"data\": [\n    {\n      \"e\": \"pv\",\n      \"url\": \"https://snowplowanalytics.com/\"\
+    ,\n      \"page\": \"Collect, manage and operationalize behavioral data at scale\
+    \ | Snowplow\",\n      \"tv\": \"js-2.18.1\",\n      \"tna\": \"sp\",\n      \"\
+    aid\": \"website\",\n      \"p\": \"web\",\n      \"tz\": \"Europe/London\",\n\
+    \      \"lang\": \"en-GB\",\n      \"cs\": \"UTF-8\",\n      \"res\": \"1920x1080\"\
+    ,\n      \"cd\": \"24\",\n      \"cookie\": \"1\",\n      \"eid\": \"8676de79-0eba-4435-ad95-8a41a8a0129c\"\
+    ,\n      \"dtm\": \"1628586512246\",\n      \"cx\": \"ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5nb29nbGUudGFnLW1hbmFnZXIuc2VydmVyLXNpZGUvdXNlcl9kYXRhL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsgCiAgICAgICAgImVtYWlsX2FkZHJlc3MiOiAiZm9vQGV4YW1wbGUuY29tIiwKICAgICAgICAicGhvbmVfbnVtYmVyIjogIisxNTU1MTIzNDU2NyIsCiAgICAgICAgImFkZHJlc3MiOiB7CiAgICAgICAgICAiZmlyc3RfbmFtZSI6ICJKYW5lIiwKICAgICAgICAgICJsYXN0X25hbWUiOiAiRG9lIiwKICAgICAgICAgICJzdHJlZXQiOiAiMTIzIEZha2UgU3QiLAogICAgICAgICAgImNpdHkiOiAiU2FuIEZyYW5jaXNjbyIsCiAgICAgICAgICAicmVnaW9uIjogIkNBIiwKICAgICAgICAgICJwb3N0YWxfY29kZSI6ICI5NDAxNiIsCiAgICAgICAgICAiY291bnRyeSI6ICJVUyIgCiAgICAgICAgfQogICAgICB9CiAgICB9CiAgXQp9Cg\"\
+    ,\n      \"vp\": \"745x1302\",\n      \"ds\": \"730x12393\",\n      \"vid\": \"\
+    1\",\n      \"sid\": \"e7580b71-227b-4868-9ea9-322a263ce885\",\n      \"duid\"\
+    : \"d54a1904-7798-401a-be0b-1a83bea73634\",\n      \"stm\": \"1628586512248\"\
+    ,\n      \"uid\": \"snow123\"\n    }\n  ]\n});  \n\nmock('getRequestPath', ()\
+    \ => {\n  return '/com.snowplowanalytics.snowplow/tp2';\n});\n\nmock('getRequestMethod',\
+    \ () => {\n  return 'POST';\n});\n\nmock('getRequestBody', () => {\n  return page_view_tp2;\n\
+    });\n\nrunCode(mockData);\n\nassertApi('claimRequest').wasCalled();\nassertApi('setResponseStatus').wasCalledWith(200);\n\
+    assertApi('setResponseBody').wasCalledWith('ok');\nassertApi('getRequestHeader').wasCalledWith('user-agent');\n\
+    assertApi('getRequestHeader').wasCalledWith('host');\nassertApi('getRequestHeader').wasCalledWith('referer');\n\
+    assertApi('getRequestHeader').wasCalledWith('SP-Anonymous');\nassertApi('getRequestHeader').wasCalledWith('origin');\n\
+    assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Origin', 'origin');\n\
+    assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Credentials',\
+    \ 'true');\nassertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Headers',\
+    \ 'Content-Type, SP-Anonymous');\nassertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Methods',\
+    \ 'POST, GET, OPTIONS');\nassertApi('returnResponse').wasCalled();\nassertApi('runContainer').wasCalledWith({\"\
+    event_name\":\"page_view\",\"client_id\":\"d54a1904-7798-401a-be0b-1a83bea73634\"\
+    ,\"language\":\"en-GB\",\"page_encoding\":\"UTF-8\",\"page_hostname\":\"snowplowanalytics.com\"\
+    ,\"page_location\":\"https://snowplowanalytics.com/\",\"page_path\":\"/\",\"page_referrer\"\
+    :\"referer\",\"page_title\":\"Collect, manage and operationalize behavioral data\
+    \ at scale | Snowplow\",\"screen_resolution\":\"1920x1080\",\"user_id\":\"snow123\"\
+    ,\"viewport_size\":\"745x1302\",\"user_agent\":\"user-agent\",\"origin\":\"origin\"\
+    ,\"host\":\"host\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
+    ,\"page\":\"Collect, manage and operationalize behavioral data at scale | Snowplow\"\
+    ,\"tv\":\"js-2.18.1\",\"tna\":\"sp\",\"aid\":\"website\",\"p\":\"web\",\"tz\"\
+    :\"Europe/London\",\"lang\":\"en-GB\",\"cs\":\"UTF-8\",\"res\":\"1920x1080\",\"\
+    cd\":\"24\",\"cookie\":\"1\",\"eid\":\"8676de79-0eba-4435-ad95-8a41a8a0129c\"\
+    ,\"dtm\":\"1628586512246\",\"cx\":\"ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5nb29nbGUudGFnLW1hbmFnZXIuc2VydmVyLXNpZGUvdXNlcl9kYXRhL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsgCiAgICAgICAgImVtYWlsX2FkZHJlc3MiOiAiZm9vQGV4YW1wbGUuY29tIiwKICAgICAgICAicGhvbmVfbnVtYmVyIjogIisxNTU1MTIzNDU2NyIsCiAgICAgICAgImFkZHJlc3MiOiB7CiAgICAgICAgICAiZmlyc3RfbmFtZSI6ICJKYW5lIiwKICAgICAgICAgICJsYXN0X25hbWUiOiAiRG9lIiwKICAgICAgICAgICJzdHJlZXQiOiAiMTIzIEZha2UgU3QiLAogICAgICAgICAgImNpdHkiOiAiU2FuIEZyYW5jaXNjbyIsCiAgICAgICAgICAicmVnaW9uIjogIkNBIiwKICAgICAgICAgICJwb3N0YWxfY29kZSI6ICI5NDAxNiIsCiAgICAgICAgICAiY291bnRyeSI6ICJVUyIgCiAgICAgICAgfQogICAgICB9CiAgICB9CiAgXQp9Cg\"\
+    ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
+    ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\",\"\
+    uid\":\"snow123\"},\"x-sp-anonymous\":undefined,\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
+    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
+    :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
+    :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
+    :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
+    connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
+    :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
+    domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
+    :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
+    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334},\"x-sp-context_com_google_tag-manager_server-side_user_data_jsonschema_1\"\
+    : {\"email_address\":\"foo@example.com\",\"phone_number\":\"+15551234567\",\"\
+    address\":{\"first_name\":\"Jane\",\"last_name\":\"Doe\",\"street\":\"123 Fake\
+    \ St\",\"city\":\"San Francisco\",\"region\":\"CA\",\"postal_code\":\"94016\"\
+    ,\"country\":\"US\"}},\"x-sp-contexts\":[{\"schema\":\"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0\"\
+    ,\"data\":{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}},{\"schema\":\"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0\"\
+    ,\"data\":{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
+    :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
+    :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
+    connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
+    :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
+    domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
+    :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
+    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}},{\"schema\":\"\
+    iglu:com.google.tag-manager.server-side/user_data/jsonschema/1-0-0\",\"data\"\
+    :{\"email_address\":\"foo@example.com\",\"phone_number\":\"+15551234567\",\"address\"\
+    :{\"first_name\":\"Jane\",\"last_name\":\"Doe\",\"street\":\"123 Fake St\",\"\
+    city\":\"San Francisco\",\"region\":\"CA\",\"postal_code\":\"94016\",\"country\"\
+    :\"US\"}}}],\"user_data\":{\"email_address\":\"foo@example.com\",\"phone_number\"\
+    :\"+15551234567\",\"address\":{\"first_name\":\"Jane\",\"last_name\":\"Doe\",\"\
+    street\":\"123 Fake St\",\"city\":\"San Francisco\",\"region\":\"CA\",\"postal_code\"\
+    :\"94016\",\"country\":\"US\"}},\"ga_session_id\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
+    ,\"ga_session_number\":\"1\",\"x-ga-mp2-seg\":\"1\",\"x-ga-protocol_version\"\
+    :\"2\",\"x-ga-page_id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\",\"ip_override\"\
+    :\"1.2.3.4\"}, runContainerCb);"
 setup: "const json = require('JSON');\nconst log = require('logToConsole');\n\nconst\
   \ mockData = {\n  ipInclude: true,\n  populateGaProps: true,\n  serveSpJs: true,\n\
   \  customSpJsName: 'example.js',\n  customPostPath: 'custom/path',\n  claimGetRequests:\
@@ -874,7 +964,8 @@ setup: "const json = require('JSON');\nconst log = require('logToConsole');\n\nc
   \ () => {\n  return '1.2.3.4';\n});\n\nlet runContainerCb;\nmock('runContainer',\
   \ (e, cb) => {\n  log('e', e);\n  runContainerCb = cb;\n  cb();\n});\n\nmock('getCookieValues',\
   \ c => {\n  return [c];\n});\n\nlet httpGetCallback;\nmock('sendHttpGet', (url,\
-  \ cb, opts) => {\n  httpGetCallback = cb;\n  cb(200, {}, 'body');\n});"
+  \ cb, opts) => {\n  httpGetCallback = cb;\n  cb(200, {'Content-Type': 'application/javascript'},\
+  \ 'body');\n});"
 
 
 ___NOTES___
