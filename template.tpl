@@ -207,26 +207,6 @@ const cleanObject = (obj) => {
   return target;
 };
 
-const mergeContexts = (args) => {
-  let target = {};
-
-  const addToTarget = (obj) => {
-    for (let prop in obj) {
-      if (obj.hasOwnProperty(prop) && target[prop] == null) {
-        target[prop] = obj[prop];
-      } else {
-        target[prop] = target[prop].concat(obj[prop]);
-      }
-    }
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    addToTarget(args[i]);
-  }
-
-  return target;
-};
-
 const sendResponse = (statusCode, body, headers) => {
   // Prevent CORS errors
   if (origin) {
@@ -247,17 +227,17 @@ const sendResponse = (statusCode, body, headers) => {
   returnResponse();
 };
 
-const getEventNameFromSchema = (event) => {  
+const getEventNameFromSchema = (event) => {
   const selfDescribing = getSelfDescribing(event);
-  
+
   // Try to find event name from schema
   if (selfDescribing) {
     const schemaParts = selfDescribing.schema.split('/');
     if (schemaParts.length > 0) {
       return schemaParts[1];
     }
-  } 
-  
+  }
+
   return undefined;
 };
 
@@ -275,7 +255,8 @@ const getContexts = (event) => {
 };
 
 const replaceAll = (str, substr, newSubstr) => {
-  let finished = false, result = str;
+  let finished = false,
+    result = str;
   while (!finished) {
     const newStr = result.replace(substr, newSubstr);
     if (result === newStr) {
@@ -307,7 +288,7 @@ const toSnakeCase = (value) => {
 
 const parseSchemaToMajor = (schema) => {
   let fixed = replaceAll(replaceAll(schema.replace('iglu:', '').replace('jsonschema/', ''), '.', '_'), '/', '_');
-  
+
   for (let i = 0; i < 2; i++) {
     fixed = fixed.substring(0, fixed.lastIndexOf('-'));
   }
@@ -330,7 +311,7 @@ const getSelfDescribing = (event) => {
 const splitResolution = (resolution) => {
   const split_res = resolution ? resolution.split('x') : undefined;
   if (split_res && split_res.length === 2) {
-	return { width: makeInteger(split_res[0]), height: makeInteger(split_res[1])};
+    return { width: makeInteger(split_res[0]), height: makeInteger(split_res[1]) };
   }
 
   return { width: undefined, height: undefined };
@@ -357,36 +338,36 @@ const getEventName = (event) => {
 
 const payloadToSnowplowEvents = (payload) => {
   const events = JSON.parse(payload);
-  
+
   if (getType(events) === 'object') {
     if (getType(events.data) === 'array') {
       return events.data;
     }
   }
-  
+
   return [];
 };
 
 const enrichedPayloadToSnowplowEvents = (payload) => {
   const events = JSON.parse(payload);
-  
+
   if (getType(events) === 'array') {
     return events;
   }
-  
+
   if (getType(events) === 'object') {
-    return [ events ];
+    return [events];
   }
-  
+
   return [];
 };
 
 const populateAdditionalProperties = (commonEvent, event) => {
-  if (commonEvent["x-sp-contexts_com_google_tag-manager_server-side_user_data_1"]) {
-    let userData = commonEvent["x-sp-contexts_com_google_tag-manager_server-side_user_data_1"][0];
+  if (commonEvent['x-sp-contexts_com_google_tag-manager_server-side_user_data_1']) {
+    let userData = commonEvent['x-sp-contexts_com_google_tag-manager_server-side_user_data_1'][0];
     commonEvent.user_data = {
       email_address: userData.email_address,
-      phone_number: userData.phone_number        
+      phone_number: userData.phone_number,
     };
     if (userData.address) {
       commonEvent.user_data.address = {
@@ -396,37 +377,36 @@ const populateAdditionalProperties = (commonEvent, event) => {
         city: userData.address.city,
         region: userData.address.region,
         postal_code: userData.address.postal_code,
-        country: userData.address.country
+        country: userData.address.country,
       };
     }
   }
 
   let sessionId = commonEvent['x-sp-domain_sessionid'];
   let sessionIndex = commonEvent['x-sp-domain_sessionidx'];
-  
-  if (commonEvent["x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1"]) {
-    const mobileSessionData = commonEvent["x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1"][0];
+
+  if (commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1']) {
+    const mobileSessionData = commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1'][0];
     commonEvent.client_id = mobileSessionData.userId;
     sessionId = mobileSessionData.sessionId;
     sessionIndex = mobileSessionData.sessionIndex;
   }
-    
+
   if (data.populateGaProps) {
     commonEvent.ga_session_id = sessionId;
     commonEvent.ga_session_number = makeString(sessionIndex);
-    commonEvent["x-ga-mp2-seg"] = "1";
-    commonEvent["x-ga-protocol_version"] = "2";
-    
-    if (commonEvent["x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1"]) {
-      commonEvent["x-ga-page_id"] = 
-        commonEvent["x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1"][0].id;
+    commonEvent['x-ga-mp2-seg'] = '1';
+    commonEvent['x-ga-protocol_version'] = '2';
+
+    if (commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1']) {
+      commonEvent['x-ga-page_id'] = commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1'][0].id;
     }
   }
 };
 
 const mapSnowplowEnrichedEventToTagEvent = (event) => {
   const urlObject = parseUrl(event.page_url);
-  
+
   let commonEvent = {
     event_name: getEventName(event),
     client_id: event.domain_userid,
@@ -443,147 +423,147 @@ const mapSnowplowEnrichedEventToTagEvent = (event) => {
     user_agent: event.useragent,
     origin: origin,
     host: host,
-    "x-sp-anonymous": anonymous,
-    "x-sp-app_id": event.app_id,
-    "x-sp-platform": event.platform,
-    "x-sp-etl_tstamp": event.etl_tstamp,
-    "x-sp-collector_tstamp": event.collector_tstamp,
-    "x-sp-dvce_created_tstamp": event.dvce_created_tstamp,
-    "x-sp-event": event.event,
-    "x-sp-event_id": event.event_id,
-    "x-sp-txn_id": event.txn_id,
-    "x-sp-name_tracker": event.name_tracker,
-    "x-sp-v_tracker": event.v_tracker,
-    "x-sp-v_collector": event.v_collector,
-    "x-sp-v_etl": event.v_etl,
-    "x-sp-user_fingerprint": event.user_fingerprint,
-    "x-sp-domain_sessionidx": event.domain_sessionidx,
-    "x-sp-network_userid": event.network_userid,
-    "x-sp-geo_country": event.geo_country,
-    "x-sp-geo_region": event.geo_region,
-    "x-sp-geo_city": event.geo_city,
-    "x-sp-geo_zipcode": event.geo_zipcode,
-    "x-sp-geo_latitude": event.geo_latitude,
-    "x-sp-geo_longitude": event.geo_longitude,
-    "x-sp-geo_location": event.geo_location,
-    "x-sp-geo_region_name": event.geo_region_name,
-    "x-sp-ip_isp": event.ip_isp,
-    "x-sp-ip_organization": event.ip_organization,
-    "x-sp-ip_domain": event.ip_domain,
-    "x-sp-ip_netspeed": event.ip_netspeed,
-    "x-sp-page_urlscheme": event.page_urlscheme,
-    "x-sp-page_urlhost": event.page_urlhost,
-    "x-sp-page_urlport": event.page_urlport,
-    "x-sp-page_urlpath": event.page_urlpath,
-    "x-sp-page_urlquery": event.page_urlquery,
-    "x-sp-page_urlfragment": event.page_urlfragment,
-    "x-sp-refr_urlscheme": event.refr_urlscheme,
-    "x-sp-refr_urlhost": event.refr_urlhost,
-    "x-sp-refr_urlport": event.refr_urlport,
-    "x-sp-refr_urlpath": event.refr_urlpath,
-    "x-sp-refr_urlquery": event.refr_urlquery,
-    "x-sp-refr_urlfragment": event.refr_urlfragment,
-    "x-sp-refr_medium": event.refr_medium,
-    "x-sp-refr_source": event.refr_source,
-    "x-sp-refr_term": event.refr_term,
-    "x-sp-mkt_medium": event.mkt_medium,
-    "x-sp-mkt_source": event.mkt_source,
-    "x-sp-mkt_term": event.mkt_term,
-    "x-sp-mkt_content": event.mkt_content,
-    "x-sp-mkt_campaign": event.mkt_campaign,
-    "x-sp-se_category": event.se_category,
-    "x-sp-se_action": event.se_action,
-    "x-sp-se_label": event.se_label,
-    "x-sp-se_property": event.se_property,
-    "x-sp-se_value": event.se_value,
-    "x-sp-tr_orderid": event.tr_orderid,
-    "x-sp-tr_affiliation": event.tr_affiliation,
-    "x-sp-tr_total": event.tr_total,
-    "x-sp-tr_tax": event.tr_tax,
-    "x-sp-tr_shipping": event.tr_shipping,
-    "x-sp-tr_city": event.tr_city,
-    "x-sp-tr_state": event.tr_state,
-    "x-sp-tr_country": event.tr_country,
-    "x-sp-ti_orderid": event.ti_orderid,
-    "x-sp-ti_sku": event.ti_sku,
-    "x-sp-ti_name": event.ti_name,
-    "x-sp-ti_category": event.ti_category,
-    "x-sp-ti_price": event.ti_price,
-    "x-sp-ti_quantity": event.ti_quantity,
-    "x-sp-pp_xoffset_min": event.pp_xoffset_min,
-    "x-sp-pp_xoffset_max": event.pp_xoffset_max,
-    "x-sp-pp_yoffset_min": event.pp_yoffset_min,
-    "x-sp-pp_yoffset_max": event.pp_yoffset_max,
-    "x-sp-br_name": event.br_name,
-    "x-sp-br_family": event.br_family,
-    "x-sp-br_version": event.br_version,
-    "x-sp-br_type": event.br_type,
-    "x-sp-br_renderengine": event.br_renderengine,
-    "x-sp-br_features_pdf": event.br_features_pdf,
-    "x-sp-br_features_flash": event.br_features_flash,
-    "x-sp-br_features_java": event.br_features_java,
-    "x-sp-br_features_director": event.br_features_director,
-    "x-sp-br_features_quicktime": event.br_features_quicktime,
-    "x-sp-br_features_realplayer": event.br_features_realplayer,
-    "x-sp-br_features_windowsmedia": event.br_features_windowsmedia,
-    "x-sp-br_features_gears": event.br_features_gears,
-    "x-sp-br_features_silverlight": event.br_features_silverlight,
-    "x-sp-br_cookies": event.br_cookies,
-    "x-sp-br_colordepth": event.br_colordepth,
-    "x-sp-br_viewwidth": event.br_viewwidth,
-    "x-sp-br_viewheight": event.br_viewheight,
-    "x-sp-os_name": event.os_name,
-    "x-sp-os_family": event.os_family,
-    "x-sp-os_manufacturer": event.os_manufacturer,
-    "x-sp-os_timezone": event.os_timezone,
-    "x-sp-dvce_type": event.dvce_type,
-    "x-sp-dvce_ismobile": event.dvce_ismobile,
-    "x-sp-dvce_screenwidth": event.dvce_screenwidth,
-    "x-sp-dvce_screenheight": event.dvce_screenheight,
-    "x-sp-doc_width": event.doc_width,
-    "x-sp-doc_height": event.doc_height,
-    "x-sp-tr_currency": event.tr_currency,
-    "x-sp-tr_total_base": event.tr_total_base,
-    "x-sp-tr_tax_base": event.tr_tax_base,
-    "x-sp-tr_shipping_base": event.tr_shipping_base,
-    "x-sp-ti_currency": event.ti_currency,
-    "x-sp-ti_price_base": event.ti_price_base,
-    "x-sp-base_currency": event.base_currency,
-    "x-sp-geo_timezone": event.geo_timezone,
-    "x-sp-mkt_clickid": event.mkt_clickid,
-    "x-sp-mkt_network": event.mkt_network,
-    "x-sp-etl_tags": event.etl_tags,
-    "x-sp-dvce_sent_tstamp": event.dvce_sent_tstamp,
-    "x-sp-refr_domain_userid": event.refr_domain_userid,
-    "x-sp-refr_device_tstamp": event.refr_device_tstamp,
-    "x-sp-domain_sessionid": event.domain_sessionid,
-    "x-sp-derived_tstamp": event.derived_tstamp,
-    "x-sp-event_vendor": event.event_vendor,
-    "x-sp-event_name": event.event_name,
-    "x-sp-event_format": event.event_format,
-    "x-sp-event_version": event.event_version,
-    "x-sp-event_fingerprint": event.event_fingerprint,
-    "x-sp-true_tstamp": event.true_tstamp,
+    'x-sp-anonymous': anonymous,
+    'x-sp-app_id': event.app_id,
+    'x-sp-platform': event.platform,
+    'x-sp-etl_tstamp': event.etl_tstamp,
+    'x-sp-collector_tstamp': event.collector_tstamp,
+    'x-sp-dvce_created_tstamp': event.dvce_created_tstamp,
+    'x-sp-event': event.event,
+    'x-sp-event_id': event.event_id,
+    'x-sp-txn_id': event.txn_id,
+    'x-sp-name_tracker': event.name_tracker,
+    'x-sp-v_tracker': event.v_tracker,
+    'x-sp-v_collector': event.v_collector,
+    'x-sp-v_etl': event.v_etl,
+    'x-sp-user_fingerprint': event.user_fingerprint,
+    'x-sp-domain_sessionidx': event.domain_sessionidx,
+    'x-sp-network_userid': event.network_userid,
+    'x-sp-geo_country': event.geo_country,
+    'x-sp-geo_region': event.geo_region,
+    'x-sp-geo_city': event.geo_city,
+    'x-sp-geo_zipcode': event.geo_zipcode,
+    'x-sp-geo_latitude': event.geo_latitude,
+    'x-sp-geo_longitude': event.geo_longitude,
+    'x-sp-geo_location': event.geo_location,
+    'x-sp-geo_region_name': event.geo_region_name,
+    'x-sp-ip_isp': event.ip_isp,
+    'x-sp-ip_organization': event.ip_organization,
+    'x-sp-ip_domain': event.ip_domain,
+    'x-sp-ip_netspeed': event.ip_netspeed,
+    'x-sp-page_urlscheme': event.page_urlscheme,
+    'x-sp-page_urlhost': event.page_urlhost,
+    'x-sp-page_urlport': event.page_urlport,
+    'x-sp-page_urlpath': event.page_urlpath,
+    'x-sp-page_urlquery': event.page_urlquery,
+    'x-sp-page_urlfragment': event.page_urlfragment,
+    'x-sp-refr_urlscheme': event.refr_urlscheme,
+    'x-sp-refr_urlhost': event.refr_urlhost,
+    'x-sp-refr_urlport': event.refr_urlport,
+    'x-sp-refr_urlpath': event.refr_urlpath,
+    'x-sp-refr_urlquery': event.refr_urlquery,
+    'x-sp-refr_urlfragment': event.refr_urlfragment,
+    'x-sp-refr_medium': event.refr_medium,
+    'x-sp-refr_source': event.refr_source,
+    'x-sp-refr_term': event.refr_term,
+    'x-sp-mkt_medium': event.mkt_medium,
+    'x-sp-mkt_source': event.mkt_source,
+    'x-sp-mkt_term': event.mkt_term,
+    'x-sp-mkt_content': event.mkt_content,
+    'x-sp-mkt_campaign': event.mkt_campaign,
+    'x-sp-se_category': event.se_category,
+    'x-sp-se_action': event.se_action,
+    'x-sp-se_label': event.se_label,
+    'x-sp-se_property': event.se_property,
+    'x-sp-se_value': event.se_value,
+    'x-sp-tr_orderid': event.tr_orderid,
+    'x-sp-tr_affiliation': event.tr_affiliation,
+    'x-sp-tr_total': event.tr_total,
+    'x-sp-tr_tax': event.tr_tax,
+    'x-sp-tr_shipping': event.tr_shipping,
+    'x-sp-tr_city': event.tr_city,
+    'x-sp-tr_state': event.tr_state,
+    'x-sp-tr_country': event.tr_country,
+    'x-sp-ti_orderid': event.ti_orderid,
+    'x-sp-ti_sku': event.ti_sku,
+    'x-sp-ti_name': event.ti_name,
+    'x-sp-ti_category': event.ti_category,
+    'x-sp-ti_price': event.ti_price,
+    'x-sp-ti_quantity': event.ti_quantity,
+    'x-sp-pp_xoffset_min': event.pp_xoffset_min,
+    'x-sp-pp_xoffset_max': event.pp_xoffset_max,
+    'x-sp-pp_yoffset_min': event.pp_yoffset_min,
+    'x-sp-pp_yoffset_max': event.pp_yoffset_max,
+    'x-sp-br_name': event.br_name,
+    'x-sp-br_family': event.br_family,
+    'x-sp-br_version': event.br_version,
+    'x-sp-br_type': event.br_type,
+    'x-sp-br_renderengine': event.br_renderengine,
+    'x-sp-br_features_pdf': event.br_features_pdf,
+    'x-sp-br_features_flash': event.br_features_flash,
+    'x-sp-br_features_java': event.br_features_java,
+    'x-sp-br_features_director': event.br_features_director,
+    'x-sp-br_features_quicktime': event.br_features_quicktime,
+    'x-sp-br_features_realplayer': event.br_features_realplayer,
+    'x-sp-br_features_windowsmedia': event.br_features_windowsmedia,
+    'x-sp-br_features_gears': event.br_features_gears,
+    'x-sp-br_features_silverlight': event.br_features_silverlight,
+    'x-sp-br_cookies': event.br_cookies,
+    'x-sp-br_colordepth': event.br_colordepth,
+    'x-sp-br_viewwidth': event.br_viewwidth,
+    'x-sp-br_viewheight': event.br_viewheight,
+    'x-sp-os_name': event.os_name,
+    'x-sp-os_family': event.os_family,
+    'x-sp-os_manufacturer': event.os_manufacturer,
+    'x-sp-os_timezone': event.os_timezone,
+    'x-sp-dvce_type': event.dvce_type,
+    'x-sp-dvce_ismobile': event.dvce_ismobile,
+    'x-sp-dvce_screenwidth': event.dvce_screenwidth,
+    'x-sp-dvce_screenheight': event.dvce_screenheight,
+    'x-sp-doc_width': event.doc_width,
+    'x-sp-doc_height': event.doc_height,
+    'x-sp-tr_currency': event.tr_currency,
+    'x-sp-tr_total_base': event.tr_total_base,
+    'x-sp-tr_tax_base': event.tr_tax_base,
+    'x-sp-tr_shipping_base': event.tr_shipping_base,
+    'x-sp-ti_currency': event.ti_currency,
+    'x-sp-ti_price_base': event.ti_price_base,
+    'x-sp-base_currency': event.base_currency,
+    'x-sp-geo_timezone': event.geo_timezone,
+    'x-sp-mkt_clickid': event.mkt_clickid,
+    'x-sp-mkt_network': event.mkt_network,
+    'x-sp-etl_tags': event.etl_tags,
+    'x-sp-dvce_sent_tstamp': event.dvce_sent_tstamp,
+    'x-sp-refr_domain_userid': event.refr_domain_userid,
+    'x-sp-refr_device_tstamp': event.refr_device_tstamp,
+    'x-sp-domain_sessionid': event.domain_sessionid,
+    'x-sp-derived_tstamp': event.derived_tstamp,
+    'x-sp-event_vendor': event.event_vendor,
+    'x-sp-event_name': event.event_name,
+    'x-sp-event_format': event.event_format,
+    'x-sp-event_version': event.event_version,
+    'x-sp-event_fingerprint': event.event_fingerprint,
+    'x-sp-true_tstamp': event.true_tstamp,
   };
-  
+
   for (let prop in event) {
     if (event.hasOwnProperty(prop)) {
       if (prop.indexOf('unstruct_event') === 0) {
-        commonEvent["x-sp-self_describing_event" + prop.replace('unstruct_event', '')] = event[prop];
+        commonEvent['x-sp-self_describing_event' + prop.replace('unstruct_event', '')] = event[prop];
       }
-      
+
       if (prop.indexOf('contexts_') === 0) {
-        commonEvent["x-sp-" + prop] = event[prop];
+        commonEvent['x-sp-' + prop] = event[prop];
       }
     }
   }
-  
+
   populateAdditionalProperties(commonEvent, event);
-  
+
   if (data.ipInclude && !anonymous) {
     commonEvent.ip_override = event.user_ipaddress;
   }
-  
+
   return cleanObject(commonEvent);
 };
 
@@ -592,7 +572,7 @@ const mapSnowplowTp2EventToTagEvent = (event) => {
   const resolution = splitResolution(event.res);
   const viewport = splitResolution(event.vp);
   const doc = splitResolution(event.ds);
-  
+
   let commonEvent = {
     event_name: getEventName(event),
     client_id: event.duid,
@@ -609,85 +589,85 @@ const mapSnowplowTp2EventToTagEvent = (event) => {
     user_agent: ua,
     origin: origin,
     host: host,
-    "x-sp-anonymous": anonymous,
-    "x-sp-app_id": event.aid,
-	"x-sp-platform": event.p,
-	"x-sp-dvce_created_tstamp": event.dtm,
-	"x-sp-event_id": event.eid,
-	"x-sp-name_tracker": event.tna,
-	"x-sp-v_tracker": event.tv,
-	"x-sp-domain_sessionid": event.sid,
-	"x-sp-domain_sessionidx": event.vid ? makeInteger(event.vid) : undefined,
-	"x-sp-network_userid": event.nuid,
-	"x-sp-se_category": event.se_ca,
-	"x-sp-se_action": event.se_ac,
-	"x-sp-se_label": event.se_la,
-	"x-sp-se_property": event.se_pr,
-	"x-sp-se_value": event.se_va,
-	"x-sp-tr_orderid": event.tr_id,
-	"x-sp-tr_affiliation": event.tr_af,
-	"x-sp-tr_total": event.tr_tt ? makeNumber(event.tr_tt) : undefined,
-	"x-sp-tr_tax": event.tr_tx ? makeNumber(event.tr_tx) : undefined,
-	"x-sp-tr_shipping": event.tr_sh ? makeNumber(event.tr_sh) : undefined,
-	"x-sp-tr_city": event.tr_ci,
-	"x-sp-tr_state": event.tr_st,
-	"x-sp-tr_country": event.tr_co,
-	"x-sp-ti_orderid": event.ti_id,
-	"x-sp-ti_sku": event.ti_sk,
-	"x-sp-ti_name": event.ti_nm,
-	"x-sp-ti_category": event.ti_ca,
-	"x-sp-ti_price": event.ti_pr ? makeNumber(event.ti_pr) : undefined,
-	"x-sp-ti_quantity": event.ti_qu ? makeInteger(event.ti_qu) : undefined,
-	"x-sp-pp_xoffset_min": event.pp_mix ? makeInteger(event.pp_mix) : undefined,
-	"x-sp-pp_xoffset_max": event.pp_max ? makeInteger(event.pp_max) : undefined,
-	"x-sp-pp_yoffset_min": event.pp_miy ? makeInteger(event.pp_miy) : undefined,
-	"x-sp-pp_yoffset_max": event.pp_may ? makeInteger(event.pp_may) : undefined,
-	"x-sp-br_cookies": event.cookie,
-	"x-sp-br_colordepth": event.cd,
-	"x-sp-br_viewwidth": viewport.width, //event.vp
-	"x-sp-br_viewheight": viewport.height,
-	"x-sp-dvce_screenwidth": resolution.width, //event.res
-	"x-sp-dvce_screenheight": resolution.height,
-	"x-sp-doc_charset": event.cs,
-	"x-sp-doc_width": doc.width, //event.ds
-	"x-sp-doc_height": doc.height,
-	"x-sp-tr_currency": event.tr_cu,
-	"x-sp-ti_currency": event.ti_cu,
-	"x-sp-dvce_sent_tstamp": event.stm,
+    'x-sp-anonymous': anonymous,
+    'x-sp-app_id': event.aid,
+    'x-sp-platform': event.p,
+    'x-sp-dvce_created_tstamp': event.dtm,
+    'x-sp-event_id': event.eid,
+    'x-sp-name_tracker': event.tna,
+    'x-sp-v_tracker': event.tv,
+    'x-sp-domain_sessionid': event.sid,
+    'x-sp-domain_sessionidx': event.vid ? makeInteger(event.vid) : undefined,
+    'x-sp-network_userid': event.nuid,
+    'x-sp-se_category': event.se_ca,
+    'x-sp-se_action': event.se_ac,
+    'x-sp-se_label': event.se_la,
+    'x-sp-se_property': event.se_pr,
+    'x-sp-se_value': event.se_va,
+    'x-sp-tr_orderid': event.tr_id,
+    'x-sp-tr_affiliation': event.tr_af,
+    'x-sp-tr_total': event.tr_tt ? makeNumber(event.tr_tt) : undefined,
+    'x-sp-tr_tax': event.tr_tx ? makeNumber(event.tr_tx) : undefined,
+    'x-sp-tr_shipping': event.tr_sh ? makeNumber(event.tr_sh) : undefined,
+    'x-sp-tr_city': event.tr_ci,
+    'x-sp-tr_state': event.tr_st,
+    'x-sp-tr_country': event.tr_co,
+    'x-sp-ti_orderid': event.ti_id,
+    'x-sp-ti_sku': event.ti_sk,
+    'x-sp-ti_name': event.ti_nm,
+    'x-sp-ti_category': event.ti_ca,
+    'x-sp-ti_price': event.ti_pr ? makeNumber(event.ti_pr) : undefined,
+    'x-sp-ti_quantity': event.ti_qu ? makeInteger(event.ti_qu) : undefined,
+    'x-sp-pp_xoffset_min': event.pp_mix ? makeInteger(event.pp_mix) : undefined,
+    'x-sp-pp_xoffset_max': event.pp_max ? makeInteger(event.pp_max) : undefined,
+    'x-sp-pp_yoffset_min': event.pp_miy ? makeInteger(event.pp_miy) : undefined,
+    'x-sp-pp_yoffset_max': event.pp_may ? makeInteger(event.pp_may) : undefined,
+    'x-sp-br_cookies': event.cookie,
+    'x-sp-br_colordepth': event.cd,
+    'x-sp-br_viewwidth': viewport.width, //event.vp
+    'x-sp-br_viewheight': viewport.height,
+    'x-sp-dvce_screenwidth': resolution.width, //event.res
+    'x-sp-dvce_screenheight': resolution.height,
+    'x-sp-doc_charset': event.cs,
+    'x-sp-doc_width': doc.width, //event.ds
+    'x-sp-doc_height': doc.height,
+    'x-sp-tr_currency': event.tr_cu,
+    'x-sp-ti_currency': event.ti_cu,
+    'x-sp-dvce_sent_tstamp': event.stm,
   };
-  
+
   if (data.includeOriginalTp2Event) {
-    commonEvent["x-sp-tp2"] = event;
+    commonEvent['x-sp-tp2'] = event;
   }
-  
+
   const selfDescribing = getSelfDescribing(event);
   if (selfDescribing) {
-    commonEvent["x-sp-self_describing_event_" + parseSchemaToMajor(selfDescribing.schema)] = selfDescribing.data;
-    
+    commonEvent['x-sp-self_describing_event_' + parseSchemaToMajor(selfDescribing.schema)] = selfDescribing.data;
+
     if (data.includeOriginalSelfDescribingEvent) {
-      commonEvent["x-sp-self_describing_event"] = selfDescribing;
+      commonEvent['x-sp-self_describing_event'] = selfDescribing;
     }
   }
-  
+
   const contexts = getContexts(event);
   if (contexts) {
     contexts.forEach((c) => {
       const schemaKey = parseSchemaToMajor(c.schema);
-      
-      if (commonEvent["x-sp-contexts_" + schemaKey]) {
-        commonEvent["x-sp-contexts_" + schemaKey].push(c.data);
+
+      if (commonEvent['x-sp-contexts_' + schemaKey]) {
+        commonEvent['x-sp-contexts_' + schemaKey].push(c.data);
       } else {
-        commonEvent["x-sp-contexts_" + schemaKey] = [ c.data ];
+        commonEvent['x-sp-contexts_' + schemaKey] = [c.data];
       }
     });
-    
+
     if (data.includeOriginalContextsArray) {
-      commonEvent["x-sp-contexts"] = contexts;
+      commonEvent['x-sp-contexts'] = contexts;
     }
   }
-    
+
   populateAdditionalProperties(commonEvent, event);
-  
+
   if (data.ipInclude && !anonymous) {
     commonEvent.ip_override = getRemoteAddress();
   }
@@ -704,26 +684,31 @@ if (requestParts.length > 2) {
   if (data.serveSpJs && (requestedSpJsName === data.customSpJsName || requestedSpJsName === 'sp.js')) {
     claimRequest();
     log('Snowplow sp.js request, claimed...');
-  
+
     const cachedSpJs = templateDataStorage.getItemCopy('snowplow_js_' + requestedSpJsVersion);
     const cachedSpJsHeaders = templateDataStorage.getItemCopy('snowplow_js_headers_' + requestedSpJsVersion) || {};
-  
+
     if (!cachedSpJs) {
-      let spJsLocation = 'https://cdn.jsdelivr.net/npm/@snowplow/javascript-tracker@' + requestedSpJsVersion + '/dist/sp.js';
+      let spJsLocation =
+        'https://cdn.jsdelivr.net/npm/@snowplow/javascript-tracker@' + requestedSpJsVersion + '/dist/sp.js';
       if (makeInteger(requestedSpJsVersion.charAt(0)) <= 2) {
         spJsLocation = 'https://cdn.jsdelivr.net/gh/snowplow/sp-js-assets@' + requestedSpJsVersion + '/sp.js';
       }
-      
-      sendHttpGet(spJsLocation, (statusCode, headers, body) => {
-        if (statusCode >= 200 && statusCode < 300) {
-          templateDataStorage.setItemCopy('snowplow_js_' + requestedSpJsVersion, body);
-          templateDataStorage.setItemCopy('snowplow_js_headers_' + requestedSpJsVersion, body);          
-          sendResponse(200, body, headers);
-        } else {
-          log('Failed to download sp.js: ', body);
-          sendResponse(statusCode, body, headers);
-        }
-      }, {timeout: 5000});
+
+      sendHttpGet(
+        spJsLocation,
+        (statusCode, headers, body) => {
+          if (statusCode >= 200 && statusCode < 300) {
+            templateDataStorage.setItemCopy('snowplow_js_' + requestedSpJsVersion, body);
+            templateDataStorage.setItemCopy('snowplow_js_headers_' + requestedSpJsVersion, body);
+            sendResponse(200, body, headers);
+          } else {
+            log('Failed to download sp.js: ', body);
+            sendResponse(statusCode, body, headers);
+          }
+        },
+        { timeout: 5000 }
+      );
     } else {
       sendResponse(200, cachedSpJs, cachedSpJsHeaders);
     }
@@ -731,7 +716,11 @@ if (requestParts.length > 2) {
 }
 
 // Check if request is for the Snowplow tracker protocol v2 (tp2) or GET path, or a custom post path
-if ((data.claimGetRequests && requestPath === '/i') || requestPath === data.customPostPath || requestPath === '/com.snowplowanalytics.snowplow/tp2') {
+if (
+  (data.claimGetRequests && requestPath === '/i') ||
+  requestPath === data.customPostPath ||
+  requestPath === '/com.snowplowanalytics.snowplow/tp2'
+) {
   // Claim the requst
   claimRequest();
   log('Snowplow tracker protocol request, claimed...');
@@ -740,7 +729,7 @@ if ((data.claimGetRequests && requestPath === '/i') || requestPath === data.cust
 
   const requestMethod = getRequestMethod();
   if (requestMethod === 'GET') {
-    events = [ getRequestQueryParameters() ];
+    events = [getRequestQueryParameters()];
     setPixelResponse();
   } else if (requestMethod === 'POST') {
     events = payloadToSnowplowEvents(getRequestBody());
@@ -748,7 +737,7 @@ if ((data.claimGetRequests && requestPath === '/i') || requestPath === data.cust
   } else if (requestMethod === 'OPTIONS') {
     sendResponse(200);
   }
-  
+
   if (events) {
     events.forEach((event) => {
       // Pass the event to a virtual container
@@ -775,7 +764,7 @@ if (requestPath === '/com.snowplowanalytics.snowplow/enriched') {
   } else if (requestMethod === 'OPTIONS') {
     sendResponse(200);
   }
-  
+
   if (events) {
     events.forEach((event) => {
       // Pass the event to a virtual container
