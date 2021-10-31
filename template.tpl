@@ -113,6 +113,30 @@ ___TEMPLATE_PARAMETERS___
         "simpleValueType": true,
         "defaultValue": true,
         "help": "Snowplow trackers send GET requests to /i, enable this to claim requests to this path using this client"
+      },
+      {
+        "type": "CHECKBOX",
+        "name": "includeOriginalTp2Event",
+        "checkboxText": "Include Original `tp2` Event",
+        "simpleValueType": true,
+        "defaultValue": true,
+        "help": "Includes the original `tp2` request on the event. This ensures when using the Snowplow Tag the exact original request is replicated to the Snowplow Collector."
+      },
+      {
+        "type": "CHECKBOX",
+        "name": "includeOriginalSelfDescribingEvent",
+        "checkboxText": "Include Original Self Describing Event",
+        "simpleValueType": true,
+        "defaultValue": false,
+        "help": "By default, the self describing event will be \"shredded\" into a key using the schema name as the key, this is a \"lossy\" transformation, as the Minor and Patch parts of the jsonschema version will be dropped. This flag populates the original, lossless, Self Describing Event as `x-sp-self_describing_event_unshredded`."
+      },
+      {
+        "type": "CHECKBOX",
+        "name": "includeOriginalContextsArray",
+        "checkboxText": "Include Original Contexts Array",
+        "simpleValueType": true,
+        "help": "By default, the contexts will be \"shredded\" into separate keys using the context name as the key, this is a \"lossy\" transformation, as the Minor and Patch parts of the jsonschema version will be dropped. If you would like to keep the original \"lossless\" contexts array, enable this option.",
+        "defaultValue": false
       }
     ]
   }
@@ -142,6 +166,8 @@ const JSON = require('JSON');
 const getType = require('getType');
 const fromBase64 = require('fromBase64');
 const makeInteger = require('makeInteger');
+const makeNumber = require('makeNumber');
+const makeString = require('makeString');
 
 const requestPath = getRequestPath();
 const ua = getRequestHeader('user-agent');
@@ -167,6 +193,38 @@ const base64urldecode = (data) => {
   }
   const b64Data = data.replace('-', '+').replace('_', '/');
   return fromBase64(b64Data);
+};
+
+const cleanObject = (obj) => {
+  let target = {};
+
+  for (let prop in obj) {
+    if (obj.hasOwnProperty(prop) && obj[prop] != null) {
+      target[prop] = obj[prop];
+    }
+  }
+
+  return target;
+};
+
+const mergeContexts = (args) => {
+  let target = {};
+
+  const addToTarget = (obj) => {
+    for (let prop in obj) {
+      if (obj.hasOwnProperty(prop) && target[prop] == null) {
+        target[prop] = obj[prop];
+      } else {
+        target[prop] = target[prop].concat(obj[prop]);
+      }
+    }
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    addToTarget(args[i]);
+  }
+
+  return target;
 };
 
 const sendResponse = (statusCode, body, headers) => {
@@ -228,13 +286,32 @@ const replaceAll = (str, substr, newSubstr) => {
   return result;
 };
 
+const isUpper = (value) => {
+  return value === value.toUpperCase() && value !== value.toLowerCase();
+};
+
+const toSnakeCase = (value) => {
+  let result = '';
+  let previousChar;
+  for (var i = 0; i < value.length; i++) {
+    let currentChar = value.charAt(i);
+    if (isUpper(currentChar) && i > 0 && previousChar !== '_') {
+      result = result + '_' + currentChar;
+    } else {
+      result = result + currentChar;
+    }
+    previousChar = currentChar;
+  }
+  return result;
+};
+
 const parseSchemaToMajor = (schema) => {
-  let fixed = replaceAll(replaceAll(schema.replace('iglu:', ''), '.', '_'), '/', '_');
+  let fixed = replaceAll(replaceAll(schema.replace('iglu:', '').replace('jsonschema/', ''), '.', '_'), '/', '_');
   
   for (let i = 0; i < 2; i++) {
     fixed = fixed.substring(0, fixed.lastIndexOf('-'));
   }
-  return fixed;
+  return toSnakeCase(fixed).toLowerCase();
 };
 
 const getSelfDescribing = (event) => {
@@ -248,6 +325,15 @@ const getSelfDescribing = (event) => {
     selfDescribing = JSON.parse(event.ue_pr);
   }
   return selfDescribing ? selfDescribing.data : undefined;
+};
+
+const splitResolution = (resolution) => {
+  const split_res = resolution ? resolution.split('x') : undefined;
+  if (split_res && split_res.length === 2) {
+	return { width: makeInteger(split_res[0]), height: makeInteger(split_res[1])};
+  }
+
+  return { width: undefined, height: undefined };
 };
 
 const getEventName = (event) => {
@@ -281,10 +367,233 @@ const payloadToSnowplowEvents = (payload) => {
   return [];
 };
 
-const mapSnowplowEventToTagEvent = (event) => {
-  const urlObject = parseUrl(event.url);
+const enrichedPayloadToSnowplowEvents = (payload) => {
+  const events = JSON.parse(payload);
   
-  const commonEvent = {
+  if (getType(events) === 'array') {
+    return events;
+  }
+  
+  if (getType(events) === 'object') {
+    return [ events ];
+  }
+  
+  return [];
+};
+
+const populateAdditionalProperties = (commonEvent, event) => {
+  if (commonEvent["x-sp-contexts_com_google_tag-manager_server-side_user_data_1"]) {
+    let userData = commonEvent["x-sp-contexts_com_google_tag-manager_server-side_user_data_1"][0];
+    commonEvent.user_data = {
+      email_address: userData.email_address,
+      phone_number: userData.phone_number        
+    };
+    if (userData.address) {
+      commonEvent.user_data.address = {
+        first_name: userData.address.first_name,
+        last_name: userData.address.last_name,
+        street: userData.address.street,
+        city: userData.address.city,
+        region: userData.address.region,
+        postal_code: userData.address.postal_code,
+        country: userData.address.country
+      };
+    }
+  }
+
+  let sessionId = commonEvent['x-sp-domain_sessionid'];
+  let sessionIndex = commonEvent['x-sp-domain_sessionidx'];
+  
+  if (commonEvent["x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1"]) {
+    const mobileSessionData = commonEvent["x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1"][0];
+    commonEvent.client_id = mobileSessionData.userId;
+    sessionId = mobileSessionData.sessionId;
+    sessionIndex = mobileSessionData.sessionIndex;
+  }
+    
+  if (data.populateGaProps) {
+    commonEvent.ga_session_id = sessionId;
+    commonEvent.ga_session_number = makeString(sessionIndex);
+    commonEvent["x-ga-mp2-seg"] = "1";
+    commonEvent["x-ga-protocol_version"] = "2";
+    
+    if (commonEvent["x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1"]) {
+      commonEvent["x-ga-page_id"] = 
+        commonEvent["x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1"][0].id;
+    }
+  }
+};
+
+const mapSnowplowEnrichedEventToTagEvent = (event) => {
+  const urlObject = parseUrl(event.page_url);
+  
+  let commonEvent = {
+    event_name: getEventName(event),
+    client_id: event.domain_userid,
+    language: event.br_lang,
+    page_encoding: event.doc_charset,
+    page_hostname: urlObject ? urlObject.hostname : undefined,
+    page_location: event.page_url,
+    page_path: urlObject ? urlObject.pathname : undefined,
+    page_referrer: event.page_referrer ? event.page_referrer : referer,
+    page_title: event.page_title,
+    screen_resolution: event.dvce_screenwidth + 'x' + event.dvce_screenheight,
+    user_id: event.user_id,
+    viewport_size: event.br_viewwidth + 'x' + event.br_viewheight,
+    user_agent: event.useragent,
+    origin: origin,
+    host: host,
+    "x-sp-anonymous": anonymous,
+    "x-sp-app_id": event.app_id,
+    "x-sp-platform": event.platform,
+    "x-sp-etl_tstamp": event.etl_tstamp,
+    "x-sp-collector_tstamp": event.collector_tstamp,
+    "x-sp-dvce_created_tstamp": event.dvce_created_tstamp,
+    "x-sp-event": event.event,
+    "x-sp-event_id": event.event_id,
+    "x-sp-txn_id": event.txn_id,
+    "x-sp-name_tracker": event.name_tracker,
+    "x-sp-v_tracker": event.v_tracker,
+    "x-sp-v_collector": event.v_collector,
+    "x-sp-v_etl": event.v_etl,
+    "x-sp-user_fingerprint": event.user_fingerprint,
+    "x-sp-domain_sessionidx": event.domain_sessionidx,
+    "x-sp-network_userid": event.network_userid,
+    "x-sp-geo_country": event.geo_country,
+    "x-sp-geo_region": event.geo_region,
+    "x-sp-geo_city": event.geo_city,
+    "x-sp-geo_zipcode": event.geo_zipcode,
+    "x-sp-geo_latitude": event.geo_latitude,
+    "x-sp-geo_longitude": event.geo_longitude,
+    "x-sp-geo_location": event.geo_location,
+    "x-sp-geo_region_name": event.geo_region_name,
+    "x-sp-ip_isp": event.ip_isp,
+    "x-sp-ip_organization": event.ip_organization,
+    "x-sp-ip_domain": event.ip_domain,
+    "x-sp-ip_netspeed": event.ip_netspeed,
+    "x-sp-page_urlscheme": event.page_urlscheme,
+    "x-sp-page_urlhost": event.page_urlhost,
+    "x-sp-page_urlport": event.page_urlport,
+    "x-sp-page_urlpath": event.page_urlpath,
+    "x-sp-page_urlquery": event.page_urlquery,
+    "x-sp-page_urlfragment": event.page_urlfragment,
+    "x-sp-refr_urlscheme": event.refr_urlscheme,
+    "x-sp-refr_urlhost": event.refr_urlhost,
+    "x-sp-refr_urlport": event.refr_urlport,
+    "x-sp-refr_urlpath": event.refr_urlpath,
+    "x-sp-refr_urlquery": event.refr_urlquery,
+    "x-sp-refr_urlfragment": event.refr_urlfragment,
+    "x-sp-refr_medium": event.refr_medium,
+    "x-sp-refr_source": event.refr_source,
+    "x-sp-refr_term": event.refr_term,
+    "x-sp-mkt_medium": event.mkt_medium,
+    "x-sp-mkt_source": event.mkt_source,
+    "x-sp-mkt_term": event.mkt_term,
+    "x-sp-mkt_content": event.mkt_content,
+    "x-sp-mkt_campaign": event.mkt_campaign,
+    "x-sp-se_category": event.se_category,
+    "x-sp-se_action": event.se_action,
+    "x-sp-se_label": event.se_label,
+    "x-sp-se_property": event.se_property,
+    "x-sp-se_value": event.se_value,
+    "x-sp-tr_orderid": event.tr_orderid,
+    "x-sp-tr_affiliation": event.tr_affiliation,
+    "x-sp-tr_total": event.tr_total,
+    "x-sp-tr_tax": event.tr_tax,
+    "x-sp-tr_shipping": event.tr_shipping,
+    "x-sp-tr_city": event.tr_city,
+    "x-sp-tr_state": event.tr_state,
+    "x-sp-tr_country": event.tr_country,
+    "x-sp-ti_orderid": event.ti_orderid,
+    "x-sp-ti_sku": event.ti_sku,
+    "x-sp-ti_name": event.ti_name,
+    "x-sp-ti_category": event.ti_category,
+    "x-sp-ti_price": event.ti_price,
+    "x-sp-ti_quantity": event.ti_quantity,
+    "x-sp-pp_xoffset_min": event.pp_xoffset_min,
+    "x-sp-pp_xoffset_max": event.pp_xoffset_max,
+    "x-sp-pp_yoffset_min": event.pp_yoffset_min,
+    "x-sp-pp_yoffset_max": event.pp_yoffset_max,
+    "x-sp-br_name": event.br_name,
+    "x-sp-br_family": event.br_family,
+    "x-sp-br_version": event.br_version,
+    "x-sp-br_type": event.br_type,
+    "x-sp-br_renderengine": event.br_renderengine,
+    "x-sp-br_features_pdf": event.br_features_pdf,
+    "x-sp-br_features_flash": event.br_features_flash,
+    "x-sp-br_features_java": event.br_features_java,
+    "x-sp-br_features_director": event.br_features_director,
+    "x-sp-br_features_quicktime": event.br_features_quicktime,
+    "x-sp-br_features_realplayer": event.br_features_realplayer,
+    "x-sp-br_features_windowsmedia": event.br_features_windowsmedia,
+    "x-sp-br_features_gears": event.br_features_gears,
+    "x-sp-br_features_silverlight": event.br_features_silverlight,
+    "x-sp-br_cookies": event.br_cookies,
+    "x-sp-br_colordepth": event.br_colordepth,
+    "x-sp-br_viewwidth": event.br_viewwidth,
+    "x-sp-br_viewheight": event.br_viewheight,
+    "x-sp-os_name": event.os_name,
+    "x-sp-os_family": event.os_family,
+    "x-sp-os_manufacturer": event.os_manufacturer,
+    "x-sp-os_timezone": event.os_timezone,
+    "x-sp-dvce_type": event.dvce_type,
+    "x-sp-dvce_ismobile": event.dvce_ismobile,
+    "x-sp-dvce_screenwidth": event.dvce_screenwidth,
+    "x-sp-dvce_screenheight": event.dvce_screenheight,
+    "x-sp-doc_width": event.doc_width,
+    "x-sp-doc_height": event.doc_height,
+    "x-sp-tr_currency": event.tr_currency,
+    "x-sp-tr_total_base": event.tr_total_base,
+    "x-sp-tr_tax_base": event.tr_tax_base,
+    "x-sp-tr_shipping_base": event.tr_shipping_base,
+    "x-sp-ti_currency": event.ti_currency,
+    "x-sp-ti_price_base": event.ti_price_base,
+    "x-sp-base_currency": event.base_currency,
+    "x-sp-geo_timezone": event.geo_timezone,
+    "x-sp-mkt_clickid": event.mkt_clickid,
+    "x-sp-mkt_network": event.mkt_network,
+    "x-sp-etl_tags": event.etl_tags,
+    "x-sp-dvce_sent_tstamp": event.dvce_sent_tstamp,
+    "x-sp-refr_domain_userid": event.refr_domain_userid,
+    "x-sp-refr_device_tstamp": event.refr_device_tstamp,
+    "x-sp-domain_sessionid": event.domain_sessionid,
+    "x-sp-derived_tstamp": event.derived_tstamp,
+    "x-sp-event_vendor": event.event_vendor,
+    "x-sp-event_name": event.event_name,
+    "x-sp-event_format": event.event_format,
+    "x-sp-event_version": event.event_version,
+    "x-sp-event_fingerprint": event.event_fingerprint,
+    "x-sp-true_tstamp": event.true_tstamp,
+  };
+  
+  for (let prop in event) {
+    if (event.hasOwnProperty(prop)) {
+      if (prop.indexOf('unstruct_event') === 0) {
+        commonEvent["x-sp-self_describing_event" + prop.replace('unstruct_event', '')] = event[prop];
+      }
+      
+      if (prop.indexOf('contexts_') === 0) {
+        commonEvent["x-sp-" + prop] = event[prop];
+      }
+    }
+  }
+  
+  populateAdditionalProperties(commonEvent, event);
+  
+  if (data.ipInclude && !anonymous) {
+    commonEvent.ip_override = event.user_ipaddress;
+  }
+  
+  return cleanObject(commonEvent);
+};
+
+const mapSnowplowTp2EventToTagEvent = (event) => {
+  const urlObject = parseUrl(event.url);
+  const resolution = splitResolution(event.res);
+  const viewport = splitResolution(event.vp);
+  const doc = splitResolution(event.ds);
+  
+  let commonEvent = {
     event_name: getEventName(event),
     client_id: event.duid,
     language: event.lang,
@@ -300,68 +609,90 @@ const mapSnowplowEventToTagEvent = (event) => {
     user_agent: ua,
     origin: origin,
     host: host,
-    "x-sp-tp2": event,
-    "x-sp-anonymous": anonymous
+    "x-sp-anonymous": anonymous,
+    "x-sp-app_id": event.aid,
+	"x-sp-platform": event.p,
+	"x-sp-dvce_created_tstamp": event.dtm,
+	"x-sp-event_id": event.eid,
+	"x-sp-name_tracker": event.tna,
+	"x-sp-v_tracker": event.tv,
+	"x-sp-domain_sessionid": event.sid,
+	"x-sp-domain_sessionidx": event.vid ? makeInteger(event.vid) : undefined,
+	"x-sp-network_userid": event.nuid,
+	"x-sp-se_category": event.se_ca,
+	"x-sp-se_action": event.se_ac,
+	"x-sp-se_label": event.se_la,
+	"x-sp-se_property": event.se_pr,
+	"x-sp-se_value": event.se_va,
+	"x-sp-tr_orderid": event.tr_id,
+	"x-sp-tr_affiliation": event.tr_af,
+	"x-sp-tr_total": event.tr_tt ? makeNumber(event.tr_tt) : undefined,
+	"x-sp-tr_tax": event.tr_tx ? makeNumber(event.tr_tx) : undefined,
+	"x-sp-tr_shipping": event.tr_sh ? makeNumber(event.tr_sh) : undefined,
+	"x-sp-tr_city": event.tr_ci,
+	"x-sp-tr_state": event.tr_st,
+	"x-sp-tr_country": event.tr_co,
+	"x-sp-ti_orderid": event.ti_id,
+	"x-sp-ti_sku": event.ti_sk,
+	"x-sp-ti_name": event.ti_nm,
+	"x-sp-ti_category": event.ti_ca,
+	"x-sp-ti_price": event.ti_pr ? makeNumber(event.ti_pr) : undefined,
+	"x-sp-ti_quantity": event.ti_qu ? makeInteger(event.ti_qu) : undefined,
+	"x-sp-pp_xoffset_min": event.pp_mix ? makeInteger(event.pp_mix) : undefined,
+	"x-sp-pp_xoffset_max": event.pp_max ? makeInteger(event.pp_max) : undefined,
+	"x-sp-pp_yoffset_min": event.pp_miy ? makeInteger(event.pp_miy) : undefined,
+	"x-sp-pp_yoffset_max": event.pp_may ? makeInteger(event.pp_may) : undefined,
+	"x-sp-br_cookies": event.cookie,
+	"x-sp-br_colordepth": event.cd,
+	"x-sp-br_viewwidth": viewport.width, //event.vp
+	"x-sp-br_viewheight": viewport.height,
+	"x-sp-dvce_screenwidth": resolution.width, //event.res
+	"x-sp-dvce_screenheight": resolution.height,
+	"x-sp-doc_charset": event.cs,
+	"x-sp-doc_width": doc.width, //event.ds
+	"x-sp-doc_height": doc.height,
+	"x-sp-tr_currency": event.tr_cu,
+	"x-sp-ti_currency": event.ti_cu,
+	"x-sp-dvce_sent_tstamp": event.stm,
   };
+  
+  if (data.includeOriginalTp2Event) {
+    commonEvent["x-sp-tp2"] = event;
+  }
   
   const selfDescribing = getSelfDescribing(event);
   if (selfDescribing) {
-    commonEvent["x-sp-self_describing_event"] = selfDescribing;
+    commonEvent["x-sp-self_describing_event_" + parseSchemaToMajor(selfDescribing.schema)] = selfDescribing.data;
+    
+    if (data.includeOriginalSelfDescribingEvent) {
+      commonEvent["x-sp-self_describing_event"] = selfDescribing;
+    }
   }
   
-  let sessionId = event.sid;
-  let sessionIndex = event.vid;
   const contexts = getContexts(event);
   if (contexts) {
     contexts.forEach((c) => {
-      commonEvent["x-sp-context_" + parseSchemaToMajor(c.schema).toLowerCase()] = c.data;
-    });
-    commonEvent["x-sp-contexts"] = contexts;
-    
-    if (commonEvent["x-sp-context_com_google_tag-manager_server-side_user_data_jsonschema_1"]) {
-      let userData = commonEvent["x-sp-context_com_google_tag-manager_server-side_user_data_jsonschema_1"];
-      commonEvent.user_data = {
-        email_address: userData.email_address,
-        phone_number: userData.phone_number        
-      };
-      if (userData.address) {
-        commonEvent.user_data.address = {
-          first_name: userData.address.first_name,
-          last_name: userData.address.last_name,
-          street: userData.address.street,
-          city: userData.address.city,
-          region: userData.address.region,
-          postal_code: userData.address.postal_code,
-          country: userData.address.country
-        };
+      const schemaKey = parseSchemaToMajor(c.schema);
+      
+      if (commonEvent["x-sp-contexts_" + schemaKey]) {
+        commonEvent["x-sp-contexts_" + schemaKey].push(c.data);
+      } else {
+        commonEvent["x-sp-contexts_" + schemaKey] = [ c.data ];
       }
-    }
+    });
     
-    if (commonEvent["x-sp-context_com_snowplowanalytics_snowplow_client_session_jsonschema_1"]) {
-      const mobileSessionData = commonEvent["x-sp-context_com_snowplowanalytics_snowplow_client_session_jsonschema_1"];
-      commonEvent.client_id = mobileSessionData.userId;
-      sessionId = mobileSessionData.sessionId;
-      sessionIndex = mobileSessionData.sessionIndex;
+    if (data.includeOriginalContextsArray) {
+      commonEvent["x-sp-contexts"] = contexts;
     }
   }
     
-  if (data.populateGaProps) {
-    commonEvent.ga_session_id = sessionId;
-    commonEvent.ga_session_number = sessionIndex;
-    commonEvent["x-ga-mp2-seg"] = "1";
-    commonEvent["x-ga-protocol_version"] = "2";
-    
-    if (commonEvent["x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1"]) {
-      commonEvent["x-ga-page_id"] = 
-        commonEvent["x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1"].id;
-    }
-  }
+  populateAdditionalProperties(commonEvent, event);
   
   if (data.ipInclude && !anonymous) {
     commonEvent.ip_override = getRemoteAddress();
   }
-  
-  return commonEvent;
+
+  return cleanObject(commonEvent);
 };
 
 const requestParts = requestPath.split('/');
@@ -421,7 +752,34 @@ if ((data.claimGetRequests && requestPath === '/i') || requestPath === data.cust
   if (events) {
     events.forEach((event) => {
       // Pass the event to a virtual container
-      runContainer(mapSnowplowEventToTagEvent(event), () => {
+      runContainer(mapSnowplowTp2EventToTagEvent(event), () => {
+        log('Tags complete, sending response...');
+        sendResponse(200, responseBody);
+      });
+    });
+  }
+}
+
+// Check if request is for a Snowplow enriched event
+if (requestPath === '/com.snowplowanalytics.snowplow/enriched') {
+  // Claim the requst
+  claimRequest();
+  log('Snowplow enriched request, claimed...');
+  let responseBody;
+  let events;
+
+  const requestMethod = getRequestMethod();
+  if (requestMethod === 'POST') {
+    events = enrichedPayloadToSnowplowEvents(getRequestBody());
+    responseBody = 'ok';
+  } else if (requestMethod === 'OPTIONS') {
+    sendResponse(200);
+  }
+  
+  if (events) {
+    events.forEach((event) => {
+      // Pass the event to a virtual container
+      runContainer(mapSnowplowEnrichedEventToTagEvent(event), () => {
         log('Tags complete, sending response...');
         sendResponse(200, responseBody);
       });
@@ -681,9 +1039,16 @@ scenarios:
     ,\"language\":\"en-GB\",\"page_encoding\":\"UTF-8\",\"page_hostname\":\"snowplowanalytics.com\"\
     ,\"page_location\":\"https://snowplowanalytics.com/\",\"page_path\":\"/\",\"page_referrer\"\
     :\"referer\",\"page_title\":\"Collect, manage and operationalize behavioral data\
-    \ at scale | Snowplow\",\"screen_resolution\":\"1920x1080\",\"user_id\":undefined,\"\
-    viewport_size\":\"745x1302\",\"user_agent\":\"user-agent\",\"origin\":\"origin\"\
-    ,\"host\":\"host\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
+    \ at scale | Snowplow\",\"screen_resolution\":\"1920x1080\",\"viewport_size\"\
+    :\"745x1302\",\"user_agent\":\"user-agent\",\"origin\":\"origin\",\"host\":\"\
+    host\",\"x-sp-app_id\":\"website\",\"x-sp-platform\":\"web\",\"x-sp-dvce_created_tstamp\"\
+    :\"1628586512246\",\"x-sp-event_id\":\"8676de79-0eba-4435-ad95-8a41a8a0129c\"\
+    ,\"x-sp-name_tracker\":\"sp\",\"x-sp-v_tracker\":\"js-2.18.1\",\"x-sp-domain_sessionid\"\
+    :\"e7580b71-227b-4868-9ea9-322a263ce885\",\"x-sp-domain_sessionidx\":1,\"x-sp-br_cookies\"\
+    :\"1\",\"x-sp-br_colordepth\":\"24\",\"x-sp-br_viewwidth\":745,\"x-sp-br_viewheight\"\
+    :1302,\"x-sp-dvce_screenwidth\":1920,\"x-sp-dvce_screenheight\":1080,\"x-sp-doc_charset\"\
+    :\"UTF-8\",\"x-sp-doc_width\":730,\"x-sp-doc_height\":12393,\"x-sp-dvce_sent_tstamp\"\
+    :\"1628586512248\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
     ,\"page\":\"Collect, manage and operationalize behavioral data at scale | Snowplow\"\
     ,\"tv\":\"js-2.18.1\",\"tna\":\"sp\",\"aid\":\"website\",\"p\":\"web\",\"tz\"\
     :\"Europe/London\",\"lang\":\"en-GB\",\"cs\":\"UTF-8\",\"res\":\"1920x1080\",\"\
@@ -691,29 +1056,19 @@ scenarios:
     ,\"dtm\":\"1628586512246\",\"cx\":\"eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0\"\
     ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\"},\"\
-    x-sp-anonymous\":undefined,\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
-    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
-    :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
-    :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
-    :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
-    connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
-    :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
-    domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
-    :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334},\"x-sp-contexts\"\
-    :[{\"schema\":\"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0\"\
-    ,\"data\":{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}},{\"schema\":\"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0\"\
-    ,\"data\":{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
-    :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
-    :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
-    connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
-    :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
-    domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
-    :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}}],\"ga_session_id\"\
-    :\"e7580b71-227b-4868-9ea9-322a263ce885\",\"ga_session_number\":\"1\",\"x-ga-mp2-seg\"\
-    :\"1\",\"x-ga-protocol_version\":\"2\",\"x-ga-page_id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"\
-    ,\"ip_override\":\"1.2.3.4\"}, runContainerCb);"
+    x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1\":[{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"\
+    }],\"x-sp-contexts_org_w3_performance_timing_1\":[{\"navigationStart\":1628586508610,\"\
+    unloadEventStart\":0,\"unloadEventEnd\":0,\"redirectStart\":0,\"redirectEnd\"\
+    :0,\"fetchStart\":1628586508610,\"domainLookupStart\":1628586508637,\"domainLookupEnd\"\
+    :1628586508691,\"connectStart\":1628586508691,\"connectEnd\":1628586508763,\"\
+    secureConnectionStart\":1628586508721,\"requestStart\":1628586508763,\"responseStart\"\
+    :1628586508797,\"responseEnd\":1628586508821,\"domLoading\":1628586509076,\"domInteractive\"\
+    :1628586509381,\"domContentLoadedEventStart\":1628586509408,\"domContentLoadedEventEnd\"\
+    :1628586509417,\"domComplete\":1628586510332,\"loadEventStart\":1628586510332,\"\
+    loadEventEnd\":1628586510334}],\"ga_session_id\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
+    ,\"ga_session_number\":\"1\",\"x-ga-mp2-seg\":\"1\",\"x-ga-protocol_version\"\
+    :\"2\",\"x-ga-page_id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\",\"ip_override\"\
+    :\"1.2.3.4\"}, runContainerCb);"
 - name: Container run with tp2 page view - with identified user
   code: "let page_view_tp2 = json.stringify({\n  \"schema\": \"iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4\"\
     ,\n  \"data\": [\n    {\n      \"e\": \"pv\",\n      \"url\": \"https://snowplowanalytics.com/\"\
@@ -744,7 +1099,14 @@ scenarios:
     :\"referer\",\"page_title\":\"Collect, manage and operationalize behavioral data\
     \ at scale | Snowplow\",\"screen_resolution\":\"1920x1080\",\"user_id\":\"snow123\"\
     ,\"viewport_size\":\"745x1302\",\"user_agent\":\"user-agent\",\"origin\":\"origin\"\
-    ,\"host\":\"host\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
+    ,\"host\":\"host\",\"x-sp-app_id\":\"website\",\"x-sp-platform\":\"web\",\"x-sp-dvce_created_tstamp\"\
+    :\"1628586512246\",\"x-sp-event_id\":\"8676de79-0eba-4435-ad95-8a41a8a0129c\"\
+    ,\"x-sp-name_tracker\":\"sp\",\"x-sp-v_tracker\":\"js-2.18.1\",\"x-sp-domain_sessionid\"\
+    :\"e7580b71-227b-4868-9ea9-322a263ce885\",\"x-sp-domain_sessionidx\":1,\"x-sp-br_cookies\"\
+    :\"1\",\"x-sp-br_colordepth\":\"24\",\"x-sp-br_viewwidth\":745,\"x-sp-br_viewheight\"\
+    :1302,\"x-sp-dvce_screenwidth\":1920,\"x-sp-dvce_screenheight\":1080,\"x-sp-doc_charset\"\
+    :\"UTF-8\",\"x-sp-doc_width\":730,\"x-sp-doc_height\":12393,\"x-sp-dvce_sent_tstamp\"\
+    :\"1628586512248\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
     ,\"page\":\"Collect, manage and operationalize behavioral data at scale | Snowplow\"\
     ,\"tv\":\"js-2.18.1\",\"tna\":\"sp\",\"aid\":\"website\",\"p\":\"web\",\"tz\"\
     :\"Europe/London\",\"lang\":\"en-GB\",\"cs\":\"UTF-8\",\"res\":\"1920x1080\",\"\
@@ -752,26 +1114,16 @@ scenarios:
     ,\"dtm\":\"1628586512246\",\"cx\":\"eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0\"\
     ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\",\"\
-    uid\":\"snow123\"},\"x-sp-anonymous\":undefined,\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
-    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
-    :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
+    uid\":\"snow123\"},\"x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1\"\
+    :[{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}],\"x-sp-contexts_org_w3_performance_timing_1\"\
+    :[{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
     :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
     :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
     connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
     :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
     domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
     :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334},\"x-sp-contexts\"\
-    :[{\"schema\":\"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0\"\
-    ,\"data\":{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}},{\"schema\":\"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0\"\
-    ,\"data\":{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
-    :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
-    :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
-    connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
-    :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
-    domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
-    :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}}],\"ga_session_id\"\
+    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}],\"ga_session_id\"\
     :\"e7580b71-227b-4868-9ea9-322a263ce885\",\"ga_session_number\":\"1\",\"x-ga-mp2-seg\"\
     :\"1\",\"x-ga-protocol_version\":\"2\",\"x-ga-page_id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"\
     ,\"ip_override\":\"1.2.3.4\"}, runContainerCb);"
@@ -806,7 +1158,14 @@ scenarios:
     :\"referer\",\"page_title\":\"Collect, manage and operationalize behavioral data\
     \ at scale | Snowplow\",\"screen_resolution\":\"1920x1080\",\"user_id\":\"snow123\"\
     ,\"viewport_size\":\"745x1302\",\"user_agent\":\"user-agent\",\"origin\":\"origin\"\
-    ,\"host\":\"host\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
+    ,\"host\":\"host\",\"x-sp-anonymous\":\"*\",\"x-sp-app_id\":\"website\",\"x-sp-platform\"\
+    :\"web\",\"x-sp-dvce_created_tstamp\":\"1628586512246\",\"x-sp-event_id\":\"8676de79-0eba-4435-ad95-8a41a8a0129c\"\
+    ,\"x-sp-name_tracker\":\"sp\",\"x-sp-v_tracker\":\"js-2.18.1\",\"x-sp-domain_sessionid\"\
+    :\"e7580b71-227b-4868-9ea9-322a263ce885\",\"x-sp-domain_sessionidx\":1,\"x-sp-br_cookies\"\
+    :\"1\",\"x-sp-br_colordepth\":\"24\",\"x-sp-br_viewwidth\":745,\"x-sp-br_viewheight\"\
+    :1302,\"x-sp-dvce_screenwidth\":1920,\"x-sp-dvce_screenheight\":1080,\"x-sp-doc_charset\"\
+    :\"UTF-8\",\"x-sp-doc_width\":730,\"x-sp-doc_height\":12393,\"x-sp-dvce_sent_tstamp\"\
+    :\"1628586512248\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
     ,\"page\":\"Collect, manage and operationalize behavioral data at scale | Snowplow\"\
     ,\"tv\":\"js-2.18.1\",\"tna\":\"sp\",\"aid\":\"website\",\"p\":\"web\",\"tz\"\
     :\"Europe/London\",\"lang\":\"en-GB\",\"cs\":\"UTF-8\",\"res\":\"1920x1080\",\"\
@@ -814,26 +1173,16 @@ scenarios:
     ,\"dtm\":\"1628586512246\",\"cx\":\"eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0\"\
     ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\",\"\
-    uid\":\"snow123\"},\"x-sp-anonymous\":\"*\",\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
-    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
-    :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
+    uid\":\"snow123\"},\"x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1\"\
+    :[{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}],\"x-sp-contexts_org_w3_performance_timing_1\"\
+    :[{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
     :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
     :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
     connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
     :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
     domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
     :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334},\"x-sp-contexts\"\
-    :[{\"schema\":\"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0\"\
-    ,\"data\":{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}},{\"schema\":\"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0\"\
-    ,\"data\":{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
-    :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
-    :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
-    connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
-    :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
-    domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
-    :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}}],\"ga_session_id\"\
+    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}],\"ga_session_id\"\
     :\"e7580b71-227b-4868-9ea9-322a263ce885\",\"ga_session_number\":\"1\",\"x-ga-mp2-seg\"\
     :\"1\",\"x-ga-protocol_version\":\"2\",\"x-ga-page_id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"\
     }, runContainerCb);"
@@ -890,7 +1239,7 @@ scenarios:
     assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Headers', 'Content-Type, SP-Anonymous');
     assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
     assertApi('returnResponse').wasCalled();
-    assertApi('runContainer').wasCalledWith({"event_name":"page_view","client_id":"d54a1904-7798-401a-be0b-1a83bea73634","language":"en-GB","page_encoding":"UTF-8","page_hostname":"snowplowanalytics.com","page_location":"https://snowplowanalytics.com/","page_path":"/","page_referrer":"referer","page_title":"Collect, manage and operationalize behavioral data at scale | Snowplow","screen_resolution":"1920x1080","user_id":undefined,"viewport_size":"745x1302","user_agent":"user-agent","origin":"origin","host":"host","x-sp-tp2":{"e":"pv","url":"https://snowplowanalytics.com/","page":"Collect, manage and operationalize behavioral data at scale | Snowplow","tv":"js-2.18.1","tna":"sp","aid":"website","p":"web","tz":"Europe/London","lang":"en-GB","cs":"UTF-8","res":"1920x1080","cd":"24","cookie":"1","eid":"8676de79-0eba-4435-ad95-8a41a8a0129c","dtm":"1628586512246","cx":"eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0","vp":"745x1302","ds":"730x12393","vid":"1","sid":"e7580b71-227b-4868-9ea9-322a263ce885","duid":"d54a1904-7798-401a-be0b-1a83bea73634","stm":"1628586512248"},"x-sp-anonymous":undefined,"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1":{"id":"a86c42e5-b831-45c8-b706-e214c26b4b3d"},"x-sp-context_org_w3_performancetiming_jsonschema_1":{"navigationStart":1628586508610,"unloadEventStart":0,"unloadEventEnd":0,"redirectStart":0,"redirectEnd":0,"fetchStart":1628586508610,"domainLookupStart":1628586508637,"domainLookupEnd":1628586508691,"connectStart":1628586508691,"connectEnd":1628586508763,"secureConnectionStart":1628586508721,"requestStart":1628586508763,"responseStart":1628586508797,"responseEnd":1628586508821,"domLoading":1628586509076,"domInteractive":1628586509381,"domContentLoadedEventStart":1628586509408,"domContentLoadedEventEnd":1628586509417,"domComplete":1628586510332,"loadEventStart":1628586510332,"loadEventEnd":1628586510334},"x-sp-contexts":[{"schema":"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0","data":{"id":"a86c42e5-b831-45c8-b706-e214c26b4b3d"}},{"schema":"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0","data":{"navigationStart":1628586508610,"unloadEventStart":0,"unloadEventEnd":0,"redirectStart":0,"redirectEnd":0,"fetchStart":1628586508610,"domainLookupStart":1628586508637,"domainLookupEnd":1628586508691,"connectStart":1628586508691,"connectEnd":1628586508763,"secureConnectionStart":1628586508721,"requestStart":1628586508763,"responseStart":1628586508797,"responseEnd":1628586508821,"domLoading":1628586509076,"domInteractive":1628586509381,"domContentLoadedEventStart":1628586509408,"domContentLoadedEventEnd":1628586509417,"domComplete":1628586510332,"loadEventStart":1628586510332,"loadEventEnd":1628586510334}}],"ga_session_id":"e7580b71-227b-4868-9ea9-322a263ce885","ga_session_number":"1","x-ga-mp2-seg":"1","x-ga-protocol_version":"2","x-ga-page_id":"a86c42e5-b831-45c8-b706-e214c26b4b3d","ip_override":"1.2.3.4"}, runContainerCb);
+    assertApi('runContainer').wasCalledWith({"event_name":"page_view","client_id":"d54a1904-7798-401a-be0b-1a83bea73634","language":"en-GB","page_encoding":"UTF-8","page_hostname":"snowplowanalytics.com","page_location":"https://snowplowanalytics.com/","page_path":"/","page_referrer":"referer","page_title":"Collect, manage and operationalize behavioral data at scale | Snowplow","screen_resolution":"1920x1080","viewport_size":"745x1302","user_agent":"user-agent","origin":"origin","host":"host","x-sp-app_id":"website","x-sp-platform":"web","x-sp-dvce_created_tstamp":"1628586512246","x-sp-event_id":"8676de79-0eba-4435-ad95-8a41a8a0129c","x-sp-name_tracker":"sp","x-sp-v_tracker":"js-2.18.1","x-sp-domain_sessionid":"e7580b71-227b-4868-9ea9-322a263ce885","x-sp-domain_sessionidx":1,"x-sp-br_cookies":"1","x-sp-br_colordepth":"24","x-sp-br_viewwidth":745,"x-sp-br_viewheight":1302,"x-sp-dvce_screenwidth":1920,"x-sp-dvce_screenheight":1080,"x-sp-doc_charset":"UTF-8","x-sp-doc_width":730,"x-sp-doc_height":12393,"x-sp-dvce_sent_tstamp":"1628586512248","x-sp-tp2":{"e":"pv","url":"https://snowplowanalytics.com/","page":"Collect, manage and operationalize behavioral data at scale | Snowplow","tv":"js-2.18.1","tna":"sp","aid":"website","p":"web","tz":"Europe/London","lang":"en-GB","cs":"UTF-8","res":"1920x1080","cd":"24","cookie":"1","eid":"8676de79-0eba-4435-ad95-8a41a8a0129c","dtm":"1628586512246","cx":"eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0","vp":"745x1302","ds":"730x12393","vid":"1","sid":"e7580b71-227b-4868-9ea9-322a263ce885","duid":"d54a1904-7798-401a-be0b-1a83bea73634","stm":"1628586512248"},"x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1":[{"id":"a86c42e5-b831-45c8-b706-e214c26b4b3d"}],"x-sp-contexts_org_w3_performance_timing_1":[{"navigationStart":1628586508610,"unloadEventStart":0,"unloadEventEnd":0,"redirectStart":0,"redirectEnd":0,"fetchStart":1628586508610,"domainLookupStart":1628586508637,"domainLookupEnd":1628586508691,"connectStart":1628586508691,"connectEnd":1628586508763,"secureConnectionStart":1628586508721,"requestStart":1628586508763,"responseStart":1628586508797,"responseEnd":1628586508821,"domLoading":1628586509076,"domInteractive":1628586509381,"domContentLoadedEventStart":1628586509408,"domContentLoadedEventEnd":1628586509417,"domComplete":1628586510332,"loadEventStart":1628586510332,"loadEventEnd":1628586510334}],"ga_session_id":"e7580b71-227b-4868-9ea9-322a263ce885","ga_session_number":"1","x-ga-mp2-seg":"1","x-ga-protocol_version":"2","x-ga-page_id":"a86c42e5-b831-45c8-b706-e214c26b4b3d","ip_override":"1.2.3.4"}, runContainerCb);
 - name: Container run with user_data context
   code: "let page_view_tp2 = json.stringify({\n  \"schema\": \"iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4\"\
     ,\n  \"data\": [\n    {\n      \"e\": \"pv\",\n      \"url\": \"https://snowplowanalytics.com/\"\
@@ -921,7 +1270,14 @@ scenarios:
     :\"referer\",\"page_title\":\"Collect, manage and operationalize behavioral data\
     \ at scale | Snowplow\",\"screen_resolution\":\"1920x1080\",\"user_id\":\"snow123\"\
     ,\"viewport_size\":\"745x1302\",\"user_agent\":\"user-agent\",\"origin\":\"origin\"\
-    ,\"host\":\"host\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
+    ,\"host\":\"host\",\"x-sp-app_id\":\"website\",\"x-sp-platform\":\"web\",\"x-sp-dvce_created_tstamp\"\
+    :\"1628586512246\",\"x-sp-event_id\":\"8676de79-0eba-4435-ad95-8a41a8a0129c\"\
+    ,\"x-sp-name_tracker\":\"sp\",\"x-sp-v_tracker\":\"js-2.18.1\",\"x-sp-domain_sessionid\"\
+    :\"e7580b71-227b-4868-9ea9-322a263ce885\",\"x-sp-domain_sessionidx\":1,\"x-sp-br_cookies\"\
+    :\"1\",\"x-sp-br_colordepth\":\"24\",\"x-sp-br_viewwidth\":745,\"x-sp-br_viewheight\"\
+    :1302,\"x-sp-dvce_screenwidth\":1920,\"x-sp-dvce_screenheight\":1080,\"x-sp-doc_charset\"\
+    :\"UTF-8\",\"x-sp-doc_width\":730,\"x-sp-doc_height\":12393,\"x-sp-dvce_sent_tstamp\"\
+    :\"1628586512248\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
     ,\"page\":\"Collect, manage and operationalize behavioral data at scale | Snowplow\"\
     ,\"tv\":\"js-2.18.1\",\"tna\":\"sp\",\"aid\":\"website\",\"p\":\"web\",\"tz\"\
     :\"Europe/London\",\"lang\":\"en-GB\",\"cs\":\"UTF-8\",\"res\":\"1920x1080\",\"\
@@ -929,37 +1285,23 @@ scenarios:
     ,\"dtm\":\"1628586512246\",\"cx\":\"ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5nb29nbGUudGFnLW1hbmFnZXIuc2VydmVyLXNpZGUvdXNlcl9kYXRhL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsgCiAgICAgICAgImVtYWlsX2FkZHJlc3MiOiAiZm9vQGV4YW1wbGUuY29tIiwKICAgICAgICAicGhvbmVfbnVtYmVyIjogIisxNTU1MTIzNDU2NyIsCiAgICAgICAgImFkZHJlc3MiOiB7CiAgICAgICAgICAiZmlyc3RfbmFtZSI6ICJKYW5lIiwKICAgICAgICAgICJsYXN0X25hbWUiOiAiRG9lIiwKICAgICAgICAgICJzdHJlZXQiOiAiMTIzIEZha2UgU3QiLAogICAgICAgICAgImNpdHkiOiAiU2FuIEZyYW5jaXNjbyIsCiAgICAgICAgICAicmVnaW9uIjogIkNBIiwKICAgICAgICAgICJwb3N0YWxfY29kZSI6ICI5NDAxNiIsCiAgICAgICAgICAiY291bnRyeSI6ICJVUyIgCiAgICAgICAgfQogICAgICB9CiAgICB9CiAgXQp9Cg\"\
     ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\",\"\
-    uid\":\"snow123\"},\"x-sp-anonymous\":undefined,\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
-    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
-    :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
+    uid\":\"snow123\"},\"x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1\"\
+    :[{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}],\"x-sp-contexts_org_w3_performance_timing_1\"\
+    :[{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
     :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
     :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
     connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
     :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
     domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
     :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334},\"x-sp-context_com_google_tag-manager_server-side_user_data_jsonschema_1\"\
-    : {\"email_address\":\"foo@example.com\",\"phone_number\":\"+15551234567\",\"\
+    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}],\"x-sp-contexts_com_google_tag-manager_server-side_user_data_1\"\
+    :[{\"email_address\":\"foo@example.com\",\"phone_number\":\"+15551234567\",\"\
     address\":{\"first_name\":\"Jane\",\"last_name\":\"Doe\",\"street\":\"123 Fake\
     \ St\",\"city\":\"San Francisco\",\"region\":\"CA\",\"postal_code\":\"94016\"\
-    ,\"country\":\"US\"}},\"x-sp-contexts\":[{\"schema\":\"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0\"\
-    ,\"data\":{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}},{\"schema\":\"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0\"\
-    ,\"data\":{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
-    :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
-    :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
-    connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
-    :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
-    domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
-    :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}},{\"schema\":\"\
-    iglu:com.google.tag-manager.server-side/user_data/jsonschema/1-0-0\",\"data\"\
-    :{\"email_address\":\"foo@example.com\",\"phone_number\":\"+15551234567\",\"address\"\
-    :{\"first_name\":\"Jane\",\"last_name\":\"Doe\",\"street\":\"123 Fake St\",\"\
-    city\":\"San Francisco\",\"region\":\"CA\",\"postal_code\":\"94016\",\"country\"\
-    :\"US\"}}}],\"user_data\":{\"email_address\":\"foo@example.com\",\"phone_number\"\
-    :\"+15551234567\",\"address\":{\"first_name\":\"Jane\",\"last_name\":\"Doe\",\"\
-    street\":\"123 Fake St\",\"city\":\"San Francisco\",\"region\":\"CA\",\"postal_code\"\
-    :\"94016\",\"country\":\"US\"}},\"ga_session_id\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
+    ,\"country\":\"US\"}}],\"user_data\":{\"email_address\":\"foo@example.com\",\"\
+    phone_number\":\"+15551234567\",\"address\":{\"first_name\":\"Jane\",\"last_name\"\
+    :\"Doe\",\"street\":\"123 Fake St\",\"city\":\"San Francisco\",\"region\":\"CA\"\
+    ,\"postal_code\":\"94016\",\"country\":\"US\"}},\"ga_session_id\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"ga_session_number\":\"1\",\"x-ga-mp2-seg\":\"1\",\"x-ga-protocol_version\"\
     :\"2\",\"x-ga-page_id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\",\"ip_override\"\
     :\"1.2.3.4\"}, runContainerCb);"
@@ -993,7 +1335,14 @@ scenarios:
     :\"referer\",\"page_title\":\"Collect, manage and operationalize behavioral data\
     \ at scale | Snowplow\",\"screen_resolution\":\"1920x1080\",\"user_id\":\"snow123\"\
     ,\"viewport_size\":\"745x1302\",\"user_agent\":\"user-agent\",\"origin\":\"origin\"\
-    ,\"host\":\"host\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
+    ,\"host\":\"host\",\"x-sp-app_id\":\"my-app\",\"x-sp-platform\":\"mob\",\"x-sp-dvce_created_tstamp\"\
+    :\"1628586512246\",\"x-sp-event_id\":\"8676de79-0eba-4435-ad95-8a41a8a0129c\"\
+    ,\"x-sp-name_tracker\":\"sp\",\"x-sp-v_tracker\":\"ios-2.0.0\",\"x-sp-domain_sessionid\"\
+    :\"e7580b71-227b-4868-9ea9-322a263ce885\",\"x-sp-domain_sessionidx\":1,\"x-sp-br_cookies\"\
+    :\"1\",\"x-sp-br_colordepth\":\"24\",\"x-sp-br_viewwidth\":745,\"x-sp-br_viewheight\"\
+    :1302,\"x-sp-dvce_screenwidth\":1920,\"x-sp-dvce_screenheight\":1080,\"x-sp-doc_charset\"\
+    :\"UTF-8\",\"x-sp-doc_width\":730,\"x-sp-doc_height\":12393,\"x-sp-dvce_sent_tstamp\"\
+    :\"1628586512248\",\"x-sp-tp2\":{\"e\":\"pv\",\"url\":\"https://snowplowanalytics.com/\"\
     ,\"page\":\"Collect, manage and operationalize behavioral data at scale | Snowplow\"\
     ,\"tv\":\"ios-2.0.0\",\"tna\":\"sp\",\"aid\":\"my-app\",\"p\":\"mob\",\"tz\":\"\
     Europe/London\",\"lang\":\"en-GB\",\"cs\":\"UTF-8\",\"res\":\"1920x1080\",\"cd\"\
@@ -1001,38 +1350,163 @@ scenarios:
     :\"1628586512246\",\"cx\":\"ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jbGllbnRfc2Vzc2lvbi9qc29uc2NoZW1hLzEtMC0xIiwKICAgICAgImRhdGEiOiB7IAogICAgICAgICJ1c2VySWQiOiAiYTQ5NDIwMzUtZGU0MS00YmJkLWI0NjYtOWMxZWY3ZjdmYjY1IiwKICAgICAgICAic2Vzc2lvbklkIjogImM1OTMzZDU4LWI4YzItNDlkZC1iYWQ1LTYxNTRkNzFhN2I5ZCIsCiAgICAgICAgInNlc3Npb25JbmRleCI6ICI1IgogICAgICB9CiAgICB9CiAgXQp9Cg\"\
     ,\"vp\":\"745x1302\",\"ds\":\"730x12393\",\"vid\":\"1\",\"sid\":\"e7580b71-227b-4868-9ea9-322a263ce885\"\
     ,\"duid\":\"d54a1904-7798-401a-be0b-1a83bea73634\",\"stm\":\"1628586512248\",\"\
-    uid\":\"snow123\"},\"x-sp-anonymous\":undefined,\"x-sp-context_com_snowplowanalytics_snowplow_web_page_jsonschema_1\"\
-    :{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"},\"x-sp-context_org_w3_performancetiming_jsonschema_1\"\
-    :{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
+    uid\":\"snow123\"},\"x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1\"\
+    :[{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}],\"x-sp-contexts_org_w3_performance_timing_1\"\
+    :[{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
     :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
     :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
     connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
     :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
     domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
     :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334},\"x-sp-context_com_snowplowanalytics_snowplow_client_session_jsonschema_1\"\
-    : {\"userId\": \"a4942035-de41-4bbd-b466-9c1ef7f7fb65\",\"sessionId\":\"c5933d58-b8c2-49dd-bad5-6154d71a7b9d\"\
-    ,\"sessionIndex\":\"5\"},\"x-sp-contexts\":[{\"schema\":\"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0\"\
-    ,\"data\":{\"id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\"}},{\"schema\":\"iglu:org.w3/PerformanceTiming/jsonschema/1-0-0\"\
-    ,\"data\":{\"navigationStart\":1628586508610,\"unloadEventStart\":0,\"unloadEventEnd\"\
-    :0,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1628586508610,\"domainLookupStart\"\
-    :1628586508637,\"domainLookupEnd\":1628586508691,\"connectStart\":1628586508691,\"\
-    connectEnd\":1628586508763,\"secureConnectionStart\":1628586508721,\"requestStart\"\
-    :1628586508763,\"responseStart\":1628586508797,\"responseEnd\":1628586508821,\"\
-    domLoading\":1628586509076,\"domInteractive\":1628586509381,\"domContentLoadedEventStart\"\
-    :1628586509408,\"domContentLoadedEventEnd\":1628586509417,\"domComplete\":1628586510332,\"\
-    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}},{\"schema\":\"\
-    iglu:com.snowplowanalytics.snowplow/client_session/jsonschema/1-0-1\",\"data\"\
-    :{\"userId\": \"a4942035-de41-4bbd-b466-9c1ef7f7fb65\",\"sessionId\":\"c5933d58-b8c2-49dd-bad5-6154d71a7b9d\"\
-    ,\"sessionIndex\":\"5\"}}],\"ga_session_id\":\"c5933d58-b8c2-49dd-bad5-6154d71a7b9d\"\
+    loadEventStart\":1628586510332,\"loadEventEnd\":1628586510334}],\"x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1\"\
+    :[{\"userId\":\"a4942035-de41-4bbd-b466-9c1ef7f7fb65\",\"sessionId\":\"c5933d58-b8c2-49dd-bad5-6154d71a7b9d\"\
+    ,\"sessionIndex\":\"5\"}],\"ga_session_id\":\"c5933d58-b8c2-49dd-bad5-6154d71a7b9d\"\
     ,\"ga_session_number\":\"5\",\"x-ga-mp2-seg\":\"1\",\"x-ga-protocol_version\"\
     :\"2\",\"x-ga-page_id\":\"a86c42e5-b831-45c8-b706-e214c26b4b3d\",\"ip_override\"\
     :\"1.2.3.4\"}, runContainerCb);"
+- name: Container run with enriched event
+  code: "let enriched = json.stringify(\n  {\n    \"geo_location\" : \"37.443604,-122.4124\"\
+    ,\n    \"app_id\" : \"angry-birds\",\n    \"platform\" : \"web\",\n    \"etl_tstamp\"\
+    \ : \"2017-01-26T00:01:25.292Z\",\n    \"collector_tstamp\" : \"2013-11-26T00:02:05Z\"\
+    ,\n    \"dvce_created_tstamp\" : \"2013-11-26T00:03:57.885Z\",\n    \"event\"\
+    \ : \"page_view\",\n    \"event_id\" : \"c6ef3124-b53a-4b13-a233-0088f79dcbcb\"\
+    ,\n    \"txn_id\" : 41828,\n    \"name_tracker\" : \"cloudfront-1\",\n    \"v_tracker\"\
+    \ : \"js-2.1.0\",\n    \"v_collector\" : \"clj-tomcat-0.1.0\",\n    \"v_etl\"\
+    \ : \"serde-0.5.2\",\n    \"user_id\" : \"jon.doe@email.com\",\n    \"user_ipaddress\"\
+    \ : \"92.231.54.234\",\n    \"user_fingerprint\" : \"2161814971\",\n    \"domain_userid\"\
+    \ : \"bc2e92ec6c204a14\",\n    \"domain_sessionidx\" : 3,\n    \"network_userid\"\
+    \ : \"ecdff4d0-9175-40ac-a8bb-325c49733607\",\n    \"geo_country\" : \"US\",\n\
+    \    \"geo_region\" : \"TX\",\n    \"geo_city\" : \"New York\",\n    \"geo_zipcode\"\
+    \ : \"94109\",\n    \"geo_latitude\" : 37.443604,\n    \"geo_longitude\" : -122.4124,\n\
+    \    \"geo_region_name\" : \"Florida\",\n    \"ip_isp\" : \"FDN Communications\"\
+    ,\n    \"ip_organization\" : \"Bouygues Telecom\",\n    \"ip_domain\" : \"nuvox.net\"\
+    ,\n    \"ip_netspeed\" : \"Cable/DSL\",\n    \"page_url\" : \"http://www.snowplowanalytics.com\"\
+    ,\n    \"page_title\" : \"On Analytics\",\n    \"page_referrer\" : null,\n   \
+    \ \"page_urlscheme\" : \"http\",\n    \"page_urlhost\" : \"www.snowplowanalytics.com\"\
+    ,\n    \"page_urlport\" : 80,\n    \"page_urlpath\" : \"/product/index.html\"\
+    ,\n    \"page_urlquery\" : \"id=GTM-DLRG\",\n    \"page_urlfragment\" : \"4-conclusion\"\
+    ,\n    \"refr_urlscheme\" : null,\n    \"refr_urlhost\" : null,\n    \"refr_urlport\"\
+    \ : null,\n    \"refr_urlpath\" : null,\n    \"refr_urlquery\" : null,\n    \"\
+    refr_urlfragment\" : null,\n    \"refr_medium\" : null,\n    \"refr_source\" :\
+    \ null,\n    \"refr_term\" : null,\n    \"mkt_medium\" : null,\n    \"mkt_source\"\
+    \ : null,\n    \"mkt_term\" : null,\n    \"mkt_content\" : null,\n    \"mkt_campaign\"\
+    \ : null,\n    \"contexts_org_schema_web_page_1\" : [ {\n      \"genre\" : \"\
+    blog\",\n      \"inLanguage\" : \"en-US\",\n      \"datePublished\" : \"2014-11-06T00:00:00Z\"\
+    ,\n      \"author\" : \"Fred Blundun\",\n      \"breadcrumb\" : [ \"blog\", \"\
+    releases\" ],\n      \"keywords\" : [ \"snowplow\", \"javascript\", \"tracker\"\
+    , \"event\" ]\n    } ],\n    \"contexts_org_w3_performance_timing_1\" : [ {\n\
+    \      \"navigationStart\" : 1415358089861,\n      \"unloadEventStart\" : 1415358090270,\n\
+    \      \"unloadEventEnd\" : 1415358090287,\n      \"redirectStart\" : 0,\n   \
+    \   \"redirectEnd\" : 0,\n      \"fetchStart\" : 1415358089870,\n      \"domainLookupStart\"\
+    \ : 1415358090102,\n      \"domainLookupEnd\" : 1415358090102,\n      \"connectStart\"\
+    \ : 1415358090103,\n      \"connectEnd\" : 1415358090183,\n      \"requestStart\"\
+    \ : 1415358090183,\n      \"responseStart\" : 1415358090265,\n      \"responseEnd\"\
+    \ : 1415358090265,\n      \"domLoading\" : 1415358090270,\n      \"domInteractive\"\
+    \ : 1415358090886,\n      \"domContentLoadedEventStart\" : 1415358090968,\n  \
+    \    \"domContentLoadedEventEnd\" : 1415358091309,\n      \"domComplete\" : 0,\n\
+    \      \"loadEventStart\" : 0,\n      \"loadEventEnd\" : 0\n    } ],\n    \"se_category\"\
+    \ : null,\n    \"se_action\" : null,\n    \"se_label\" : null,\n    \"se_property\"\
+    \ : null,\n    \"se_value\" : null,\n    \"unstruct_event_com_snowplowanalytics_snowplow_link_click_1\"\
+    \ : {\n      \"targetUrl\" : \"http://www.example.com\",\n      \"elementClasses\"\
+    \ : [ \"foreground\" ],\n      \"elementId\" : \"exampleLink\"\n    },\n    \"\
+    tr_orderid\" : null,\n    \"tr_affiliation\" : null,\n    \"tr_total\" : null,\n\
+    \    \"tr_tax\" : null,\n    \"tr_shipping\" : null,\n    \"tr_city\" : null,\n\
+    \    \"tr_state\" : null,\n    \"tr_country\" : null,\n    \"ti_orderid\" : null,\n\
+    \    \"ti_sku\" : null,\n    \"ti_name\" : null,\n    \"ti_category\" : null,\n\
+    \    \"ti_price\" : null,\n    \"ti_quantity\" : null,\n    \"pp_xoffset_min\"\
+    \ : null,\n    \"pp_xoffset_max\" : null,\n    \"pp_yoffset_min\" : null,\n  \
+    \  \"pp_yoffset_max\" : null,\n    \"useragent\" : null,\n    \"br_name\" : null,\n\
+    \    \"br_family\" : null,\n    \"br_version\" : null,\n    \"br_type\" : null,\n\
+    \    \"br_renderengine\" : null,\n    \"br_lang\" : null,\n    \"br_features_pdf\"\
+    \ : true,\n    \"br_features_flash\" : false,\n    \"br_features_java\" : null,\n\
+    \    \"br_features_director\" : null,\n    \"br_features_quicktime\" : null,\n\
+    \    \"br_features_realplayer\" : null,\n    \"br_features_windowsmedia\" : null,\n\
+    \    \"br_features_gears\" : null,\n    \"br_features_silverlight\" : null,\n\
+    \    \"br_cookies\" : null,\n    \"br_colordepth\" : null,\n    \"br_viewwidth\"\
+    \ : null,\n    \"br_viewheight\" : null,\n    \"os_name\" : null,\n    \"os_family\"\
+    \ : null,\n    \"os_manufacturer\" : null,\n    \"os_timezone\" : null,\n    \"\
+    dvce_type\" : null,\n    \"dvce_ismobile\" : null,\n    \"dvce_screenwidth\" :\
+    \ null,\n    \"dvce_screenheight\" : null,\n    \"doc_charset\" : null,\n    \"\
+    doc_width\" : null,\n    \"doc_height\" : null,\n    \"tr_currency\" : null,\n\
+    \    \"tr_total_base\" : null,\n    \"tr_tax_base\" : null,\n    \"tr_shipping_base\"\
+    \ : null,\n    \"ti_currency\" : null,\n    \"ti_price_base\" : null,\n    \"\
+    base_currency\" : null,\n    \"geo_timezone\" : null,\n    \"mkt_clickid\" : null,\n\
+    \    \"mkt_network\" : null,\n    \"etl_tags\" : null,\n    \"dvce_sent_tstamp\"\
+    \ : null,\n    \"refr_domain_userid\" : null,\n    \"refr_dvce_tstamp\" : null,\n\
+    \    \"contexts_com_snowplowanalytics_snowplow_ua_parser_context_1\": [{\n   \
+    \   \"useragentFamily\": \"IE\",\n      \"useragentMajor\": \"7\",\n      \"useragentMinor\"\
+    : \"0\",\n      \"useragentPatch\": null,\n      \"useragentVersion\": \"IE 7.0\"\
+    ,\n      \"osFamily\": \"Windows XP\",\n      \"osMajor\": null,\n      \"osMinor\"\
+    : null,\n      \"osPatch\": null,\n      \"osPatchMinor\": null,\n      \"osVersion\"\
+    : \"Windows XP\",\n      \"deviceFamily\": \"Other\"\n    }],\n    \"domain_sessionid\"\
+    : \"2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1\",\n    \"derived_tstamp\": \"2013-11-26T00:03:57.886Z\"\
+    ,\n    \"event_vendor\": \"com.snowplowanalytics.snowplow\",\n    \"event_name\"\
+    : \"link_click\",\n    \"event_format\": \"jsonschema\",\n    \"event_version\"\
+    : \"1-0-0\",\n    \"event_fingerprint\": \"e3dbfa9cca0412c3d4052863cefb547f\"\
+    ,\n    \"true_tstamp\": \"2013-11-26T00:03:57.886Z\"\n  }\n);  \n\nmock('getRequestPath',\
+    \ () => {\n  return '/com.snowplowanalytics.snowplow/enriched';\n});\n\nmock('getRequestMethod',\
+    \ () => {\n  return 'POST';\n});\n\nmock('getRequestBody', () => {\n  return enriched;\n\
+    });\n\nrunCode(mockData);\n\nassertApi('claimRequest').wasCalled();\nassertApi('setResponseStatus').wasCalledWith(200);\n\
+    assertApi('setResponseBody').wasCalledWith('ok');\nassertApi('getRequestHeader').wasCalledWith('user-agent');\n\
+    assertApi('getRequestHeader').wasCalledWith('host');\nassertApi('getRequestHeader').wasCalledWith('referer');\n\
+    assertApi('getRequestHeader').wasCalledWith('SP-Anonymous');\nassertApi('getRequestHeader').wasCalledWith('origin');\n\
+    assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Origin', 'origin');\n\
+    assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Credentials',\
+    \ 'true');\nassertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Headers',\
+    \ 'Content-Type, SP-Anonymous');\nassertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Methods',\
+    \ 'POST, GET, OPTIONS');\nassertApi('returnResponse').wasCalled();\nassertApi('runContainer').wasCalledWith({\"\
+    client_id\":\"bc2e92ec6c204a14\",\"page_hostname\":\"www.snowplowanalytics.com\"\
+    ,\"page_location\":\"http://www.snowplowanalytics.com\",\"page_path\":\"/\",\"\
+    page_referrer\":\"referer\",\"page_title\":\"On Analytics\",\"screen_resolution\"\
+    :\"nullxnull\",\"user_id\":\"jon.doe@email.com\",\"viewport_size\":\"nullxnull\"\
+    ,\"origin\":\"origin\",\"host\":\"host\",\"x-sp-app_id\":\"angry-birds\",\"x-sp-platform\"\
+    :\"web\",\"x-sp-etl_tstamp\":\"2017-01-26T00:01:25.292Z\",\"x-sp-collector_tstamp\"\
+    :\"2013-11-26T00:02:05Z\",\"x-sp-dvce_created_tstamp\":\"2013-11-26T00:03:57.885Z\"\
+    ,\"x-sp-event\":\"page_view\",\"x-sp-event_id\":\"c6ef3124-b53a-4b13-a233-0088f79dcbcb\"\
+    ,\"x-sp-txn_id\":41828,\"x-sp-name_tracker\":\"cloudfront-1\",\"x-sp-v_tracker\"\
+    :\"js-2.1.0\",\"x-sp-v_collector\":\"clj-tomcat-0.1.0\",\"x-sp-v_etl\":\"serde-0.5.2\"\
+    ,\"x-sp-user_fingerprint\":\"2161814971\",\"x-sp-domain_sessionidx\":3,\"x-sp-network_userid\"\
+    :\"ecdff4d0-9175-40ac-a8bb-325c49733607\",\"x-sp-geo_country\":\"US\",\"x-sp-geo_region\"\
+    :\"TX\",\"x-sp-geo_city\":\"New York\",\"x-sp-geo_zipcode\":\"94109\",\"x-sp-geo_latitude\"\
+    :37.443604,\"x-sp-geo_longitude\":-122.4124,\"x-sp-geo_location\":\"37.443604,-122.4124\"\
+    ,\"x-sp-geo_region_name\":\"Florida\",\"x-sp-ip_isp\":\"FDN Communications\",\"\
+    x-sp-ip_organization\":\"Bouygues Telecom\",\"x-sp-ip_domain\":\"nuvox.net\",\"\
+    x-sp-ip_netspeed\":\"Cable/DSL\",\"x-sp-page_urlscheme\":\"http\",\"x-sp-page_urlhost\"\
+    :\"www.snowplowanalytics.com\",\"x-sp-page_urlport\":80,\"x-sp-page_urlpath\"\
+    :\"/product/index.html\",\"x-sp-page_urlquery\":\"id=GTM-DLRG\",\"x-sp-page_urlfragment\"\
+    :\"4-conclusion\",\"x-sp-br_features_pdf\":true,\"x-sp-br_features_flash\":false,\"\
+    x-sp-domain_sessionid\":\"2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1\",\"x-sp-derived_tstamp\"\
+    :\"2013-11-26T00:03:57.886Z\",\"x-sp-event_vendor\":\"com.snowplowanalytics.snowplow\"\
+    ,\"x-sp-event_name\":\"link_click\",\"x-sp-event_format\":\"jsonschema\",\"x-sp-event_version\"\
+    :\"1-0-0\",\"x-sp-event_fingerprint\":\"e3dbfa9cca0412c3d4052863cefb547f\",\"\
+    x-sp-true_tstamp\":\"2013-11-26T00:03:57.886Z\",\"x-sp-contexts_org_schema_web_page_1\"\
+    :[{\"genre\":\"blog\",\"inLanguage\":\"en-US\",\"datePublished\":\"2014-11-06T00:00:00Z\"\
+    ,\"author\":\"Fred Blundun\",\"breadcrumb\":[\"blog\",\"releases\"],\"keywords\"\
+    :[\"snowplow\",\"javascript\",\"tracker\",\"event\"]}],\"x-sp-contexts_org_w3_performance_timing_1\"\
+    :[{\"navigationStart\":1415358089861,\"unloadEventStart\":1415358090270,\"unloadEventEnd\"\
+    :1415358090287,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1415358089870,\"\
+    domainLookupStart\":1415358090102,\"domainLookupEnd\":1415358090102,\"connectStart\"\
+    :1415358090103,\"connectEnd\":1415358090183,\"requestStart\":1415358090183,\"\
+    responseStart\":1415358090265,\"responseEnd\":1415358090265,\"domLoading\":1415358090270,\"\
+    domInteractive\":1415358090886,\"domContentLoadedEventStart\":1415358090968,\"\
+    domContentLoadedEventEnd\":1415358091309,\"domComplete\":0,\"loadEventStart\"\
+    :0,\"loadEventEnd\":0}],\"x-sp-self_describing_event_com_snowplowanalytics_snowplow_link_click_1\"\
+    :{\"targetUrl\":\"http://www.example.com\",\"elementClasses\":[\"foreground\"\
+    ],\"elementId\":\"exampleLink\"},\"x-sp-contexts_com_snowplowanalytics_snowplow_ua_parser_context_1\"\
+    :[{\"useragentFamily\":\"IE\",\"useragentMajor\":\"7\",\"useragentMinor\":\"0\"\
+    ,\"useragentPatch\":null,\"useragentVersion\":\"IE 7.0\",\"osFamily\":\"Windows\
+    \ XP\",\"osMajor\":null,\"osMinor\":null,\"osPatch\":null,\"osPatchMinor\":null,\"\
+    osVersion\":\"Windows XP\",\"deviceFamily\":\"Other\"}],\"ga_session_id\":\"2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1\"\
+    ,\"ga_session_number\":\"3\",\"x-ga-mp2-seg\":\"1\",\"x-ga-protocol_version\"\
+    :\"2\",\"ip_override\":\"92.231.54.234\"}, runContainerCb);"
 setup: "const json = require('JSON');\nconst log = require('logToConsole');\n\nconst\
-  \ mockData = {\n  ipInclude: true,\n  populateGaProps: true,\n  serveSpJs: true,\n\
-  \  customSpJsName: 'example.js',\n  customPostPath: 'custom/path',\n  claimGetRequests:\
-  \ true\n};\n\nmock('getRequestHeader', header => {\n  if(header === 'SP-Anonymous')\
-  \ {\n    return undefined;\n  }\n  \n  return header;\n});\n\nmock('getRemoteAddress',\
+  \ mockData = {\n  ipInclude: true,\n  populateSpProps: false,\n  populateGaProps:\
+  \ true,\n  serveSpJs: true,\n  customSpJsName: 'example.js',\n  customPostPath:\
+  \ 'custom/path',\n  claimGetRequests: true,\n  includeOriginalTp2Event: true,\n\
+  \  includeOriginalSelfDescribingEvent: false,\n  includeOriginalContextsArray: false\n\
+  };\n\nmock('getRequestHeader', header => {\n  if(header === 'SP-Anonymous') {\n\
+  \    return undefined;\n  }\n  \n  return header;\n});\n\nmock('getRemoteAddress',\
   \ () => {\n  return '1.2.3.4';\n});\n\nlet runContainerCb;\nmock('runContainer',\
   \ (e, cb) => {\n  log('e', e);\n  runContainerCb = cb;\n  cb();\n});\n\nmock('getCookieValues',\
   \ c => {\n  return [c];\n});\n\nlet httpGetCallback;\nmock('sendHttpGet', (url,\
