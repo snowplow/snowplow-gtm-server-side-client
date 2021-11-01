@@ -332,7 +332,7 @@ const getEventName = (event) => {
     case 'ue':
       return getEventNameFromSchema(event);
     default:
-      return undefined;
+      return event.e;
   }
 };
 
@@ -350,12 +350,13 @@ const payloadToSnowplowEvents = (payload) => {
 
 const enrichedPayloadToSnowplowEvents = (payload) => {
   const events = JSON.parse(payload);
+  const eventType = getType(events);
 
-  if (getType(events) === 'array') {
+  if (eventType === 'array') {
     return events;
   }
 
-  if (getType(events) === 'object') {
+  if (eventType === 'object') {
     return [events];
   }
 
@@ -394,7 +395,7 @@ const populateAdditionalProperties = (commonEvent, event) => {
 
   if (data.populateGaProps) {
     commonEvent.ga_session_id = sessionId;
-    commonEvent.ga_session_number = makeString(sessionIndex);
+    commonEvent.ga_session_number = sessionIndex ? makeString(sessionIndex) : undefined;
     commonEvent['x-ga-mp2-seg'] = '1';
     commonEvent['x-ga-protocol_version'] = '2';
 
@@ -408,7 +409,7 @@ const mapSnowplowEnrichedEventToTagEvent = (event) => {
   const urlObject = parseUrl(event.page_url);
 
   let commonEvent = {
-    event_name: getEventName(event),
+    event_name: event.event_name,
     client_id: event.domain_userid,
     language: event.br_lang,
     page_encoding: event.doc_charset,
@@ -417,9 +418,9 @@ const mapSnowplowEnrichedEventToTagEvent = (event) => {
     page_path: urlObject ? urlObject.pathname : undefined,
     page_referrer: event.page_referrer ? event.page_referrer : referer,
     page_title: event.page_title,
-    screen_resolution: event.dvce_screenwidth + 'x' + event.dvce_screenheight,
+    screen_resolution: event.dvce_screenwidth ? event.dvce_screenwidth + 'x' + event.dvce_screenheight : undefined,
     user_id: event.user_id,
-    viewport_size: event.br_viewwidth + 'x' + event.br_viewheight,
+    viewport_size: event.br_viewwidth ? event.br_viewwidth + 'x' + event.br_viewheight : undefined,
     user_agent: event.useragent,
     origin: origin,
     host: host,
