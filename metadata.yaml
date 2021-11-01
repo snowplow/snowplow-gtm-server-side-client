@@ -2,11 +2,13 @@ homepage: "https://www.snowplowanalytics.com"
 documentation: "https://docs.snowplowanalytics.com/docs"
 versions:
   # Latest version
+  - sha: 93a8e05d4839d6b2174f4ebfb6a3d1ff2c26bd6c
+    changeNotes: Prevent undefineds from part populated enriched events (#17)
+  # Older versions
   - sha: 7d54cfabf4048c02b39bbeea9797c66bee296a2a
     changeNotes: |2
       Added support for enriched JSON (#14)
       Format template with prettier (#15)
-  # Older versions
   - sha: a0a83b1e85f7ed5f09a6157db1b98e0b233cf5cb
     changeNotes: Parse client_session schema from mobile tracking (#12)
   - sha: 4c9e2a2586ad0b3b542cbd06e475771477ff9ba1
