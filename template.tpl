@@ -1446,42 +1446,41 @@ scenarios:
     \ 'true');\nassertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Headers',\
     \ 'Content-Type, SP-Anonymous');\nassertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Methods',\
     \ 'POST, GET, OPTIONS');\nassertApi('returnResponse').wasCalled();\nassertApi('runContainer').wasCalledWith({\"\
-    client_id\":\"bc2e92ec6c204a14\",\"page_hostname\":\"www.snowplowanalytics.com\"\
-    ,\"page_location\":\"http://www.snowplowanalytics.com\",\"page_path\":\"/\",\"\
-    page_referrer\":\"referer\",\"page_title\":\"On Analytics\",\"screen_resolution\"\
-    :\"nullxnull\",\"user_id\":\"jon.doe@email.com\",\"viewport_size\":\"nullxnull\"\
-    ,\"origin\":\"origin\",\"host\":\"host\",\"x-sp-app_id\":\"angry-birds\",\"x-sp-platform\"\
-    :\"web\",\"x-sp-etl_tstamp\":\"2017-01-26T00:01:25.292Z\",\"x-sp-collector_tstamp\"\
-    :\"2013-11-26T00:02:05Z\",\"x-sp-dvce_created_tstamp\":\"2013-11-26T00:03:57.885Z\"\
-    ,\"x-sp-event\":\"page_view\",\"x-sp-event_id\":\"c6ef3124-b53a-4b13-a233-0088f79dcbcb\"\
-    ,\"x-sp-txn_id\":41828,\"x-sp-name_tracker\":\"cloudfront-1\",\"x-sp-v_tracker\"\
-    :\"js-2.1.0\",\"x-sp-v_collector\":\"clj-tomcat-0.1.0\",\"x-sp-v_etl\":\"serde-0.5.2\"\
-    ,\"x-sp-user_fingerprint\":\"2161814971\",\"x-sp-domain_sessionidx\":3,\"x-sp-network_userid\"\
-    :\"ecdff4d0-9175-40ac-a8bb-325c49733607\",\"x-sp-geo_country\":\"US\",\"x-sp-geo_region\"\
-    :\"TX\",\"x-sp-geo_city\":\"New York\",\"x-sp-geo_zipcode\":\"94109\",\"x-sp-geo_latitude\"\
-    :37.443604,\"x-sp-geo_longitude\":-122.4124,\"x-sp-geo_location\":\"37.443604,-122.4124\"\
-    ,\"x-sp-geo_region_name\":\"Florida\",\"x-sp-ip_isp\":\"FDN Communications\",\"\
-    x-sp-ip_organization\":\"Bouygues Telecom\",\"x-sp-ip_domain\":\"nuvox.net\",\"\
-    x-sp-ip_netspeed\":\"Cable/DSL\",\"x-sp-page_urlscheme\":\"http\",\"x-sp-page_urlhost\"\
-    :\"www.snowplowanalytics.com\",\"x-sp-page_urlport\":80,\"x-sp-page_urlpath\"\
-    :\"/product/index.html\",\"x-sp-page_urlquery\":\"id=GTM-DLRG\",\"x-sp-page_urlfragment\"\
-    :\"4-conclusion\",\"x-sp-br_features_pdf\":true,\"x-sp-br_features_flash\":false,\"\
-    x-sp-domain_sessionid\":\"2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1\",\"x-sp-derived_tstamp\"\
-    :\"2013-11-26T00:03:57.886Z\",\"x-sp-event_vendor\":\"com.snowplowanalytics.snowplow\"\
-    ,\"x-sp-event_name\":\"link_click\",\"x-sp-event_format\":\"jsonschema\",\"x-sp-event_version\"\
-    :\"1-0-0\",\"x-sp-event_fingerprint\":\"e3dbfa9cca0412c3d4052863cefb547f\",\"\
-    x-sp-true_tstamp\":\"2013-11-26T00:03:57.886Z\",\"x-sp-contexts_org_schema_web_page_1\"\
-    :[{\"genre\":\"blog\",\"inLanguage\":\"en-US\",\"datePublished\":\"2014-11-06T00:00:00Z\"\
-    ,\"author\":\"Fred Blundun\",\"breadcrumb\":[\"blog\",\"releases\"],\"keywords\"\
-    :[\"snowplow\",\"javascript\",\"tracker\",\"event\"]}],\"x-sp-contexts_org_w3_performance_timing_1\"\
-    :[{\"navigationStart\":1415358089861,\"unloadEventStart\":1415358090270,\"unloadEventEnd\"\
-    :1415358090287,\"redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1415358089870,\"\
-    domainLookupStart\":1415358090102,\"domainLookupEnd\":1415358090102,\"connectStart\"\
-    :1415358090103,\"connectEnd\":1415358090183,\"requestStart\":1415358090183,\"\
-    responseStart\":1415358090265,\"responseEnd\":1415358090265,\"domLoading\":1415358090270,\"\
-    domInteractive\":1415358090886,\"domContentLoadedEventStart\":1415358090968,\"\
-    domContentLoadedEventEnd\":1415358091309,\"domComplete\":0,\"loadEventStart\"\
-    :0,\"loadEventEnd\":0}],\"x-sp-self_describing_event_com_snowplowanalytics_snowplow_link_click_1\"\
+    event_name\":\"link_click\",\"client_id\":\"bc2e92ec6c204a14\",\"page_hostname\"\
+    :\"www.snowplowanalytics.com\",\"page_location\":\"http://www.snowplowanalytics.com\"\
+    ,\"page_path\":\"/\",\"page_referrer\":\"referer\",\"page_title\":\"On Analytics\"\
+    ,\"user_id\":\"jon.doe@email.com\",\"origin\":\"origin\",\"host\":\"host\",\"\
+    x-sp-app_id\":\"angry-birds\",\"x-sp-platform\":\"web\",\"x-sp-etl_tstamp\":\"\
+    2017-01-26T00:01:25.292Z\",\"x-sp-collector_tstamp\":\"2013-11-26T00:02:05Z\"\
+    ,\"x-sp-dvce_created_tstamp\":\"2013-11-26T00:03:57.885Z\",\"x-sp-event\":\"page_view\"\
+    ,\"x-sp-event_id\":\"c6ef3124-b53a-4b13-a233-0088f79dcbcb\",\"x-sp-txn_id\":41828,\"\
+    x-sp-name_tracker\":\"cloudfront-1\",\"x-sp-v_tracker\":\"js-2.1.0\",\"x-sp-v_collector\"\
+    :\"clj-tomcat-0.1.0\",\"x-sp-v_etl\":\"serde-0.5.2\",\"x-sp-user_fingerprint\"\
+    :\"2161814971\",\"x-sp-domain_sessionidx\":3,\"x-sp-network_userid\":\"ecdff4d0-9175-40ac-a8bb-325c49733607\"\
+    ,\"x-sp-geo_country\":\"US\",\"x-sp-geo_region\":\"TX\",\"x-sp-geo_city\":\"New\
+    \ York\",\"x-sp-geo_zipcode\":\"94109\",\"x-sp-geo_latitude\":37.443604,\"x-sp-geo_longitude\"\
+    :-122.4124,\"x-sp-geo_location\":\"37.443604,-122.4124\",\"x-sp-geo_region_name\"\
+    :\"Florida\",\"x-sp-ip_isp\":\"FDN Communications\",\"x-sp-ip_organization\":\"\
+    Bouygues Telecom\",\"x-sp-ip_domain\":\"nuvox.net\",\"x-sp-ip_netspeed\":\"Cable/DSL\"\
+    ,\"x-sp-page_urlscheme\":\"http\",\"x-sp-page_urlhost\":\"www.snowplowanalytics.com\"\
+    ,\"x-sp-page_urlport\":80,\"x-sp-page_urlpath\":\"/product/index.html\",\"x-sp-page_urlquery\"\
+    :\"id=GTM-DLRG\",\"x-sp-page_urlfragment\":\"4-conclusion\",\"x-sp-br_features_pdf\"\
+    :true,\"x-sp-br_features_flash\":false,\"x-sp-domain_sessionid\":\"2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1\"\
+    ,\"x-sp-derived_tstamp\":\"2013-11-26T00:03:57.886Z\",\"x-sp-event_vendor\":\"\
+    com.snowplowanalytics.snowplow\",\"x-sp-event_name\":\"link_click\",\"x-sp-event_format\"\
+    :\"jsonschema\",\"x-sp-event_version\":\"1-0-0\",\"x-sp-event_fingerprint\":\"\
+    e3dbfa9cca0412c3d4052863cefb547f\",\"x-sp-true_tstamp\":\"2013-11-26T00:03:57.886Z\"\
+    ,\"x-sp-contexts_org_schema_web_page_1\":[{\"genre\":\"blog\",\"inLanguage\":\"\
+    en-US\",\"datePublished\":\"2014-11-06T00:00:00Z\",\"author\":\"Fred Blundun\"\
+    ,\"breadcrumb\":[\"blog\",\"releases\"],\"keywords\":[\"snowplow\",\"javascript\"\
+    ,\"tracker\",\"event\"]}],\"x-sp-contexts_org_w3_performance_timing_1\":[{\"navigationStart\"\
+    :1415358089861,\"unloadEventStart\":1415358090270,\"unloadEventEnd\":1415358090287,\"\
+    redirectStart\":0,\"redirectEnd\":0,\"fetchStart\":1415358089870,\"domainLookupStart\"\
+    :1415358090102,\"domainLookupEnd\":1415358090102,\"connectStart\":1415358090103,\"\
+    connectEnd\":1415358090183,\"requestStart\":1415358090183,\"responseStart\":1415358090265,\"\
+    responseEnd\":1415358090265,\"domLoading\":1415358090270,\"domInteractive\":1415358090886,\"\
+    domContentLoadedEventStart\":1415358090968,\"domContentLoadedEventEnd\":1415358091309,\"\
+    domComplete\":0,\"loadEventStart\":0,\"loadEventEnd\":0}],\"x-sp-self_describing_event_com_snowplowanalytics_snowplow_link_click_1\"\
     :{\"targetUrl\":\"http://www.example.com\",\"elementClasses\":[\"foreground\"\
     ],\"elementId\":\"exampleLink\"},\"x-sp-contexts_com_snowplowanalytics_snowplow_ua_parser_context_1\"\
     :[{\"useragentFamily\":\"IE\",\"useragentMajor\":\"7\",\"useragentMinor\":\"0\"\
