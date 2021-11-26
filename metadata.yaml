@@ -2,9 +2,11 @@ homepage: "https://www.snowplowanalytics.com"
 documentation: "https://docs.snowplowanalytics.com/docs/forwarding-events-to-destinations/forwarding-events/google-tag-manager-server-side/snowplow-client-for-gtm-ss/"
 versions:
   # Latest version
+  - sha: dacee1e9014574d0b302dff4df5856169faec09e
+    changeNotes: Update Documentation Links (#19)
+  # Older versions
   - sha: 378203ec0235b0f15ed495c61e69faf4e16ea83b
     changeNotes: Prevent undefineds from part populated enriched events (#17)
-  # Older versions
   - sha: 7d54cfabf4048c02b39bbeea9797c66bee296a2a
     changeNotes: |2
       Added support for enriched JSON (#14)
