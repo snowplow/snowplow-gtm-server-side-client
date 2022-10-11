@@ -128,7 +128,7 @@ ___TEMPLATE_PARAMETERS___
         "checkboxText": "Include Original Self Describing Event",
         "simpleValueType": true,
         "defaultValue": false,
-        "help": "By default, the self describing event will be \"shredded\" into a key using the schema name as the key, this is a \"lossy\" transformation, as the Minor and Patch parts of the jsonschema version will be dropped. This flag populates the original, lossless, Self Describing Event as `x-sp-self_describing_event_unshredded`."
+        "help": "By default, the self describing event will be \"shredded\" into a key using the schema name as the key, this is a \"lossy\" transformation, as the Minor and Patch parts of the jsonschema version will be dropped. This flag populates the original, lossless, Self Describing Event as `x-sp-self_describing_event`."
       },
       {
         "type": "CHECKBOX",
