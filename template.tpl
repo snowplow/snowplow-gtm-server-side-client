@@ -1500,11 +1500,9 @@ setup: "const json = require('JSON');\nconst log = require('logToConsole');\n\nc
   \ (e, cb) => {\n  log('e', e);\n  runContainerCb = cb;\n  cb();\n});\n\nmock('getCookieValues',\
   \ c => {\n  return [c];\n});\n\nlet httpGetCallback;\nmock('sendHttpGet', (url,\
   \ cb, opts) => {\n  httpGetCallback = cb;\n  cb(200, {'Content-Type': 'application/javascript'},\
-  \ 'body');\n});"
+  \ 'body');\n});\n\nmock('claimRequest', function() {});"
 
 
 ___NOTES___
 
 Created on 24/07/2020, 15:17:13
-
-
