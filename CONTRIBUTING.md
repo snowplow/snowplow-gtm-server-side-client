@@ -1,10 +1,10 @@
 # Contributing
 
-The Snowplow Client for Google Tag Manager Server-side is maintained by the Engineering team at Snowplow Analytics. We welcome suggestions for improvements and bug fixes to all Snowplow Trackers.  
+The Snowplow Client for Google Tag Manager Server-side is maintained by the Engineering team at Snowplow. We welcome suggestions for improvements and bug fixes to all Snowplow Trackers.
 
 We are extremely grateful for all contributions we receive, whether that is reporting an issue or a change to the code which can be made in the form of a pull request.
 
-For support requests, please use our community support Discourse forum: https://discourse.snowplowanalytics.com/.
+For support requests, please use our community support Discourse forum: https://discourse.snowplow.io/.
 
 ## Setting up an Environment
 
@@ -16,7 +16,7 @@ You should ensure you are comfortable building and testing the existing release 
 
 ### Creating an issue
 
-The project contains an issue template which should help guiding you through the process. However, please keep in mind that support requests should go to our Discourse forum: https://discourse.snowplowanalytics.com/ and not GitHub issues.
+The project contains an issue template which should help guiding you through the process. However, please keep in mind that support requests should go to our Discourse forum: https://discourse.snowplow.io/ and not GitHub issues.
 
 It's also a good idea to log an issue before starting to work on a pull request to discuss it with the maintainers. A pull request is just one solution to a problem and it is often a good idea to talk about the problem with the maintainers first.
 
@@ -34,7 +34,7 @@ These are a few guidelines to keep in mind when opening pull requests.
 
 ### Guidelines
 
-Please supply a good PR description. These are very helpful and help the maintainers to understand _why_ the change has been made, not just _what_ changes have been made.  
+Please supply a good PR description. These are very helpful and help the maintainers to understand _why_ the change has been made, not just _what_ changes have been made.
 
 Please try and keep your PR to a single feature of fix. This might mean breaking up a feature into multiple PRs but this makes it easier for the maintainers to review and also reduces the risk in each change.
 
@@ -53,12 +53,12 @@ for example:
 
 ### Writing tests
 
-Whenever necessary, it's good practice to add the corresponding tests to whichever feature you are working on.  
+Whenever necessary, it's good practice to add the corresponding tests to whichever feature you are working on.
 Any non-trivial PR must have tests and will not be accepted without them.
 
 ### Feedback cycle
 
-Reviews should happen fairly quickly during weekdays.  
+Reviews should happen fairly quickly during weekdays.
 If you feel your pull request has been forgotten, please ping one or more maintainers in the pull request.
 
 ### Getting your pull request merged
@@ -67,14 +67,14 @@ If your pull request is fairly chunky, there might be a non-trivial delay betwee
 
 ### Contributor license agreement
 
-We require outside contributors to sign a Contributor license agreement (or CLA) before we can merge their pull requests.  
-You can find more information on the topic in [the dedicated wiki page](https://github.com/snowplow/snowplow/wiki/CLA).  
+We require outside contributors to sign a Contributor license agreement (or CLA) before we can merge their pull requests.
+You can find more information on the topic in [the dedicated wiki page](https://docs.snowplow.io/docs/contributing/contributor-license-agreement/).
 The @snowplowcla bot will guide you through the process.
 
 ## Getting in touch
 
 ### Community support requests
 
-Please do not log an issue if you are asking for support, all of our community support requests go through our Discourse forum: https://discourse.snowplowanalytics.com/.
+Please do not log an issue if you are asking for support, all of our community support requests go through our Discourse forum: https://discourse.snowplow.io/.
 
 Posting your problem there ensures more people will see it and you should get support faster than creating a new issue on GitHub. Please do create a new issue on GitHub if you think you've found a bug though!
