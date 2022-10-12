@@ -139,6 +139,132 @@ ___TEMPLATE_PARAMETERS___
         "defaultValue": false
       }
     ]
+  },
+  {
+    "type": "GROUP",
+    "name": "commonEventGroup",
+    "displayName": "Advanced common event options",
+    "groupStyle": "ZIPPY_CLOSED",
+    "subParams": [
+      {
+        "type": "GROUP",
+        "name": "clientIdGroup",
+        "displayName": "client_id",
+        "groupStyle": "ZIPPY_OPEN",
+        "subParams": [
+          {
+            "type": "CHECKBOX",
+            "name": "defaultClientId",
+            "checkboxText": "Use default settings for client_id mapping in common event",
+            "simpleValueType": true,
+            "defaultValue": true,
+            "help": "By default the Snowplow Client sets the \u003cstrong\u003eclient_id\u003c/strong\u003e as follows: If the event has the `client_session` context entity attached, its \u003cstrong\u003euserId\u003c/strong\u003e property is used. Else the \u003cstrong\u003edomain_userid\u003c/strong\u003e atomic property is used."
+          },
+          {
+            "type": "SIMPLE_TABLE",
+            "name": "clientId",
+            "displayName": "Specify client_id",
+            "simpleTableColumns": [
+              {
+                "defaultValue": "",
+                "displayName": "Search Priority (higher value means higher priority)",
+                "name": "priority",
+                "type": "TEXT",
+                "isUnique": true,
+                "valueValidators": [
+                  {
+                    "type": "NON_EMPTY"
+                  },
+                  {
+                    "type": "NON_NEGATIVE_NUMBER"
+                  }
+                ]
+              },
+              {
+                "defaultValue": "",
+                "displayName": "Property name or path",
+                "name": "propPath",
+                "type": "TEXT",
+                "isUnique": true,
+                "valueValidators": [
+                  {
+                    "type": "NON_EMPTY"
+                  }
+                ]
+              }
+            ],
+            "enablingConditions": [
+              {
+                "paramName": "defaultClientId",
+                "paramValue": false,
+                "type": "EQUALS"
+              }
+            ],
+            "help": "You can use this table to specify the rules to set the \u003cstrong\u003eclient_id\u003c/strong\u003e of the common event, which will override the default Snowplow Client behavior. For consistency downstream it is suggested to specify properties that apply to all Snowplow events (atomic or through global context entities). The \u003cstrong\u003eProperty name or path\u003c/strong\u003e column refers to the common event, so you can define alternative Snowplow properties using the \u003cstrong\u003ex-sp-\u003c/strong\u003e prefix before the enriched property name or nested path (using dot notation). Example values: `x-sp-network_userid` or `x-sp-contexts_com_acme_user_1.0.anonymous_identifier`.",
+            "valueValidators": []
+          }
+        ]
+      },
+      {
+        "type": "GROUP",
+        "name": "userIdGroup",
+        "displayName": "user_id",
+        "groupStyle": "ZIPPY_OPEN",
+        "subParams": [
+          {
+            "type": "CHECKBOX",
+            "name": "defaultUserId",
+            "checkboxText": "Use default settings for user_id mapping in common event",
+            "simpleValueType": true,
+            "help": "By default the Snowplow Client sets the \u003cstrong\u003euser_id\u003c/strong\u003e from the \u003cstrong\u003euser_id\u003c/strong\u003e property of the Snowplow event.",
+            "defaultValue": true
+          },
+          {
+            "type": "SIMPLE_TABLE",
+            "name": "userId",
+            "displayName": "Specify user_id",
+            "simpleTableColumns": [
+              {
+                "defaultValue": "",
+                "displayName": "Search Priority (higher value means higher priority)",
+                "name": "priority",
+                "type": "TEXT",
+                "isUnique": true,
+                "valueValidators": [
+                  {
+                    "type": "NON_EMPTY"
+                  },
+                  {
+                    "type": "NON_NEGATIVE_NUMBER"
+                  }
+                ]
+              },
+              {
+                "defaultValue": "",
+                "displayName": "Property name or path",
+                "name": "propPath",
+                "type": "TEXT",
+                "isUnique": true,
+                "valueValidators": [
+                  {
+                    "type": "NON_EMPTY"
+                  }
+                ]
+              }
+            ],
+            "enablingConditions": [
+              {
+                "paramName": "defaultUserId",
+                "paramValue": false,
+                "type": "EQUALS"
+              }
+            ],
+            "help": "You can use this table to specify the rules to set the \u003cstrong\u003euser_id\u003c/strong\u003e of the common event, which will override the default Snowplow Client behavior. For consistency downstream it is suggested to specify properties that apply to all Snowplow events (atomic or through global context entities). The \u003cstrong\u003eProperty name or path\u003c/strong\u003e column refers to the common event, so you can define alternative Snowplow properties using the \u003cstrong\u003ex-sp-\u003c/strong\u003e prefix before the enriched property name or nested path (using dot notation). For example: `x-sp-contexts_com_acme_user_entity_1.0.email`.",
+            "valueValidators": []
+          }
+        ]
+      }
+    ]
   }
 ]
 
@@ -175,6 +301,26 @@ const origin = getRequestHeader('origin');
 const host = getRequestHeader('host');
 const referer = getRequestHeader('referer');
 const anonymous = getRequestHeader('SP-Anonymous');
+
+const defCommon = {
+  clientId: [
+    {
+      priority: 2,
+      propPath:
+        'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1.0.userId',
+    },
+    {
+      priority: 1,
+      propPath: 'x-sp-domain_userid',
+    },
+  ],
+  userId: [
+    {
+      priority: 1,
+      propPath: 'x-sp-user_id',
+    },
+  ],
+};
 
 // Helpers
 // Snowplow events are base64 url encoded, so fromBase64 doesn't work, unless...
@@ -377,6 +523,77 @@ const enrichedPayloadToSnowplowEvents = (payload) => {
   return [];
 };
 
+/*
+ * Gets the value in obj from path.
+ * Path must be a string denoting a (nested) property path separated by '.'
+ *  e.g. getFromPath('a.b', {a: {b: 2}}) => 2
+ *
+ * @param path {string} - the string to replace into
+ * @param obj {Object} - the object to look into
+ * @returns - the corresponding value or undefined
+ */
+const getFromPath = (path, obj) => {
+  if (getType(path) === 'string') {
+    const splitPath = path.split('.').filter((p) => !!p);
+    return splitPath.reduce((acc, curr) => acc && acc[curr], obj);
+  }
+  return undefined;
+};
+
+/*
+ * Helper function to locate properties from a given table (locator).
+ * A locator is a table (array of objects) like the `clientId` and `userId`
+ * tables, which are client configuration fields.
+ * Each of its rows contains a priority and a *common event* path to look for.
+ */
+const locate = (locator, obj, postFunction) => {
+  const ordLoc = locator.sort((x, y) => {
+    const xPriority = makeInteger(x.priority);
+    const yPriority = makeInteger(y.priority);
+    return xPriority > yPriority ? -1 : 1;
+  });
+  for (let i = 0; i < ordLoc.length; i++) {
+    const row = ordLoc[i];
+    const located = getFromPath(row.propPath, obj);
+    if (located !== undefined) {
+      if (getType(postFunction) === 'function') {
+        return postFunction(located);
+      }
+      return located;
+    }
+  }
+  return undefined;
+};
+
+/*
+ * Helper to ensure an array is returned even if template table has no rows.
+ * Aids in Advanced Common Event Settings, where not supplying rows
+ * e.g. for user_id table means "do not set it".
+ */
+const asArray = (x) => {
+  if (getType(x) !== 'array') {
+    return [];
+  }
+  return x;
+};
+
+/*
+ * Creates an object, which has common event properties as properties.
+ * (currently supported: clientId, userId)
+ * Used to enable advanced common event settings.
+ */
+const mkCommonProps = (xSpEvent) => {
+  const locations = {
+    clientId: data.defaultClientId ? defCommon.clientId : asArray(data.clientId),
+    userId: data.defaultUserId ? defCommon.userId : asArray(data.userId),
+  };
+  const locatedValues = {
+    clientId: locate(locations.clientId, xSpEvent, makeString),
+    userId: locate(locations.userId, xSpEvent, makeString),
+  };
+  return cleanObject(locatedValues);
+};
+
 const populateAdditionalProperties = (commonEvent, event) => {
   if (
     commonEvent['x-sp-contexts_com_google_tag-manager_server-side_user_data_1']
@@ -412,7 +629,6 @@ const populateAdditionalProperties = (commonEvent, event) => {
       commonEvent[
         'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1'
       ][0];
-    commonEvent.client_id = mobileSessionData.userId;
     sessionId = mobileSessionData.sessionId;
     sessionIndex = mobileSessionData.sessionIndex;
   }
@@ -432,6 +648,11 @@ const populateAdditionalProperties = (commonEvent, event) => {
         ][0].id;
     }
   }
+
+  // client_id and user_id
+  const fromAdvancedCommon = mkCommonProps(commonEvent);
+  commonEvent.client_id = fromAdvancedCommon.clientId;
+  commonEvent.user_id = fromAdvancedCommon.userId;
 };
 
 const mapSnowplowEnrichedEventToTagEvent = (event) => {
@@ -439,7 +660,6 @@ const mapSnowplowEnrichedEventToTagEvent = (event) => {
 
   let commonEvent = {
     event_name: event.event_name,
-    client_id: event.domain_userid,
     language: event.br_lang,
     page_encoding: event.doc_charset,
     page_hostname: urlObject ? urlObject.hostname : undefined,
@@ -448,7 +668,6 @@ const mapSnowplowEnrichedEventToTagEvent = (event) => {
     page_referrer: event.page_referrer ? event.page_referrer : referer,
     page_title: event.page_title,
     screen_resolution: event.dvce_screenwidth ? event.dvce_screenwidth + 'x' + event.dvce_screenheight : undefined,
-    user_id: event.user_id,
     viewport_size: event.br_viewwidth ? event.br_viewwidth + 'x' + event.br_viewheight : undefined,
     user_agent: event.useragent,
     origin: origin,
@@ -466,7 +685,9 @@ const mapSnowplowEnrichedEventToTagEvent = (event) => {
     'x-sp-v_tracker': event.v_tracker,
     'x-sp-v_collector': event.v_collector,
     'x-sp-v_etl': event.v_etl,
+    'x-sp-user_id': event.user_id,
     'x-sp-user_fingerprint': event.user_fingerprint,
+    'x-sp-domain_userid': event.domain_userid,
     'x-sp-domain_sessionidx': event.domain_sessionidx,
     'x-sp-network_userid': event.network_userid,
     'x-sp-geo_country': event.geo_country,
@@ -607,7 +828,6 @@ const mapSnowplowTp2EventToTagEvent = (event) => {
 
   let commonEvent = {
     event_name: getEventName(event),
-    client_id: event.duid,
     language: event.lang,
     page_encoding: event.cs,
     page_hostname: urlObject ? urlObject.hostname : undefined,
@@ -616,7 +836,6 @@ const mapSnowplowTp2EventToTagEvent = (event) => {
     page_referrer: event.refr ? event.refr : referer,
     page_title: event.page,
     screen_resolution: event.res,
-    user_id: event.uid,
     viewport_size: event.vp,
     user_agent: ua,
     origin: origin,
@@ -630,6 +849,8 @@ const mapSnowplowTp2EventToTagEvent = (event) => {
     'x-sp-v_tracker': event.tv,
     'x-sp-domain_sessionid': event.sid,
     'x-sp-domain_sessionidx': event.vid ? makeInteger(event.vid) : undefined,
+    'x-sp-domain_userid': event.duid,
+    'x-sp-user_id': event.uid,
     'x-sp-network_userid': event.nuid,
     'x-sp-se_category': event.se_ca,
     'x-sp-se_action': event.se_ac,
@@ -1202,6 +1423,7 @@ scenarios:
         'x-sp-v_tracker': 'js-2.18.1',
         'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
         'x-sp-domain_sessionidx': 1,
+        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
         'x-sp-br_cookies': '1',
         'x-sp-br_colordepth': '24',
         'x-sp-br_viewwidth': 745,
@@ -1371,6 +1593,8 @@ scenarios:
         'x-sp-v_tracker': 'js-2.18.1',
         'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
         'x-sp-domain_sessionidx': 1,
+        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+        'x-sp-user_id': 'snow123',
         'x-sp-br_cookies': '1',
         'x-sp-br_colordepth': '24',
         'x-sp-br_viewwidth': 745,
@@ -1550,6 +1774,8 @@ scenarios:
         'x-sp-v_tracker': 'js-2.18.1',
         'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
         'x-sp-domain_sessionidx': 1,
+        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+        'x-sp-user_id': 'snow123',
         'x-sp-br_cookies': '1',
         'x-sp-br_colordepth': '24',
         'x-sp-br_viewwidth': 745,
@@ -1711,6 +1937,7 @@ scenarios:
         'x-sp-v_tracker': 'js-2.18.1',
         'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
         'x-sp-domain_sessionidx': 1,
+        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
         'x-sp-br_cookies': '1',
         'x-sp-br_colordepth': '24',
         'x-sp-br_viewwidth': 745,
@@ -1880,6 +2107,8 @@ scenarios:
         'x-sp-v_tracker': 'js-2.18.1',
         'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
         'x-sp-domain_sessionidx': 1,
+        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+        'x-sp-user_id': 'snow123',
         'x-sp-br_cookies': '1',
         'x-sp-br_colordepth': '24',
         'x-sp-br_viewwidth': 745,
@@ -1981,7 +2210,7 @@ scenarios:
       runContainerCb
     );
 - name: Container run with client_session context from mobile tracker
-  code: |
+  code: |+
     let page_view_tp2 = json.stringify({
       schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
       data: [
@@ -2052,6 +2281,8 @@ scenarios:
       'POST, GET, OPTIONS'
     );
     assertApi('returnResponse').wasCalled();
+
+
     assertApi('runContainer').wasCalledWith(
       {
         event_name: 'page_view',
@@ -2078,6 +2309,8 @@ scenarios:
         'x-sp-v_tracker': 'ios-2.0.0',
         'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
         'x-sp-domain_sessionidx': 1,
+        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+        'x-sp-user_id': 'snow123',
         'x-sp-br_cookies': '1',
         'x-sp-br_colordepth': '24',
         'x-sp-br_viewwidth': 745,
@@ -2157,6 +2390,7 @@ scenarios:
       },
       runContainerCb
     );
+
 - name: Container run with enriched event
   code: |
     let enriched = json.stringify({
@@ -2411,6 +2645,8 @@ scenarios:
         'x-sp-v_etl': 'serde-0.5.2',
         'x-sp-user_fingerprint': '2161814971',
         'x-sp-domain_sessionidx': 3,
+        'x-sp-domain_userid': 'bc2e92ec6c204a14',
+        'x-sp-user_id': 'jon.doe@email.com',
         'x-sp-network_userid': 'ecdff4d0-9175-40ac-a8bb-325c49733607',
         'x-sp-geo_country': 'US',
         'x-sp-geo_region': 'TX',
@@ -2503,13 +2739,212 @@ scenarios:
       },
       runContainerCb
     );
-setup: |
+- name: Container run with advanced common event settings
+  code: |
+    const testMockData = {
+      ipInclude: true,
+      populateGaProps: true,
+
+      serveSpJs: true,
+      customSpJsName: 'sp.js',
+
+      customPostPath: '/com.snowplowanalytics.snowplow/tp2',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: true,
+      includeOriginalContextsArray: true,
+
+      defaultClientId: false,
+      clientId: [
+        {
+          priority: '10',
+          propPath: 'x-sp-domain_userid',
+        },
+        {
+          priority: '20',
+          propPath:
+            'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1.0.firstEventId',
+        },
+      ],
+
+      defaultUserId: false,
+      userId: [
+        {
+          priority: '10',
+          propPath:
+            'x-sp-contexts_com_google_tag-manager_server-side_user_data_1.0.email_address',
+        },
+      ],
+    };
+
+    const selfDescTp2 = json.stringify({
+      schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
+      data: [
+        {
+          e: 'ue',
+          eid: '2fa64700-fce2-4e81-afdf-1d0660d34025',
+          tv: 'js-3.5.0',
+          tna: 'spTest',
+          aid: 'media-test',
+          p: 'web',
+          cookie: '1',
+          cs: 'UTF-8',
+          lang: 'en-US',
+          res: '1920x1080',
+          cd: '24',
+          tz: 'Europe/Rome',
+          dtm: '1665409698511',
+          vp: '779x975',
+          ds: '764x1211',
+          vid: '2',
+          sid: '339013c3-ec6b-4935-b46e-487064bb1ce0',
+          duid: 'ee7b64e7-bee2-4b16-aaf5-5057e6bb4af3',
+          uid: 'tester',
+          url: 'http://localhost:8080/',
+          ue_pr:
+            '{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.snowplowanalytics.snowplow/media_player_event/jsonschema/1-0-0","data":{"type":"play"}}}',
+          co: '{"schema":"iglu:com.snowplowanalytics.snowplow/contexts/jsonschema/1-0-0","data":[{"schema":"iglu:com.youtube/youtube/jsonschema/1-0-0","data":{"autoPlay":false,"avaliablePlaybackRates":[0.25,0.5,0.75,1,1.25,1.5,1.75,2],"buffering":false,"controls":true,"cued":false,"loaded":6,"playbackQuality":"medium","playerId":"youtube-song","unstarted":false,"url":"https://www.youtube.com/watch?v=XCQK6LmhYqc","avaliableQualityLevels":["hd1080","hd720","large","medium","small","tiny","auto"]}},{"schema":"iglu:com.snowplowanalytics.snowplow/media_player/jsonschema/1-0-0","data":{"currentTime":0.04796292752075195,"duration":190.301,"ended":false,"loop":false,"muted":false,"paused":false,"playbackRate":1,"volume":100}},{"schema":"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0","data":{"id":"82f93a00-2344-4367-9a2d-a2dcf038d5e1"}},{"schema":"iglu:com.google.tag-manager.server-side/user_data/jsonschema/1-0-0","data":{"email_address":"foo@test.io"}},{"schema":"iglu:com.snowplowanalytics.snowplow/mobile_context/jsonschema/1-0-2","data":{"osType":"myOsType","osVersion":"myOsVersion","deviceManufacturer":"myDevMan","deviceModel":"myDevModel"}},{"schema":"iglu:com.snowplowanalytics.snowplow/client_session/jsonschema/1-0-2","data":{"userId":"ee7b64e7-bee2-4b16-aaf5-5057e6bb4af3","sessionId":"339013c3-ec6b-4935-b46e-487064bb1ce0","eventIndex":2,"sessionIndex":2,"previousSessionId":"66609ccf-c661-4f10-97ce-af38220f5eb5","storageMechanism":"COOKIE_1","firstEventId":"6bf091b9-db2f-4753-a844-51d72f6d8210","firstEventTimestamp":"2022-10-10T13:48:18.208Z"}}]}',
+          stm: '1665409698512',
+        },
+      ],
+    });
+    const selfDescEvent = json.parse(selfDescTp2).data[0];
+
+    mock('getRequestPath', () => {
+      return '/com.snowplowanalytics.snowplow/tp2';
+    });
+
+    mock('getRequestMethod', () => {
+      return 'POST';
+    });
+
+    mock('getRequestBody', () => {
+      return selfDescTp2;
+    });
+
+    runCode(testMockData);
+
+    assertApi('claimRequest').wasCalled();
+    assertApi('returnResponse').wasCalled();
+
+    const expectedCommonEvent = {
+      event_name: 'media_player_event',
+      language: 'en-US',
+      page_encoding: 'UTF-8',
+      page_hostname: 'localhost',
+      page_location: 'http://localhost:8080/',
+      page_path: '/',
+      page_referrer: 'referer',
+      screen_resolution: '1920x1080',
+      viewport_size: '779x975',
+      user_agent: 'user-agent',
+      origin: 'origin',
+      host: 'host',
+      'x-sp-app_id': 'media-test',
+      'x-sp-platform': 'web',
+      'x-sp-dvce_created_tstamp': '1665409698511',
+      'x-sp-event_id': '2fa64700-fce2-4e81-afdf-1d0660d34025',
+      'x-sp-name_tracker': 'spTest',
+      'x-sp-v_tracker': 'js-3.5.0',
+      'x-sp-domain_sessionid': '339013c3-ec6b-4935-b46e-487064bb1ce0',
+      'x-sp-domain_sessionidx': 2,
+      'x-sp-domain_userid': 'ee7b64e7-bee2-4b16-aaf5-5057e6bb4af3',
+      'x-sp-user_id': 'tester',
+      'x-sp-br_cookies': '1',
+      'x-sp-br_colordepth': '24',
+      'x-sp-br_viewwidth': 779,
+      'x-sp-br_viewheight': 975,
+      'x-sp-dvce_screenwidth': 1920,
+      'x-sp-dvce_screenheight': 1080,
+      'x-sp-doc_charset': 'UTF-8',
+      'x-sp-doc_width': 764,
+      'x-sp-doc_height': 1211,
+      'x-sp-dvce_sent_tstamp': '1665409698512',
+      'x-sp-self_describing_event_com_snowplowanalytics_snowplow_media_player_event_1':
+        { type: 'play' },
+      'x-sp-contexts_com_youtube_youtube_1': [
+        {
+          autoPlay: false,
+          avaliablePlaybackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
+          buffering: false,
+          controls: true,
+          cued: false,
+          loaded: 6,
+          playbackQuality: 'medium',
+          playerId: 'youtube-song',
+          unstarted: false,
+          url: 'https://www.youtube.com/watch?v=XCQK6LmhYqc',
+          avaliableQualityLevels: [
+            'hd1080',
+            'hd720',
+            'large',
+            'medium',
+            'small',
+            'tiny',
+            'auto',
+          ],
+        },
+      ],
+      'x-sp-contexts_com_snowplowanalytics_snowplow_media_player_1': [
+        {
+          currentTime: 0.04796292752075195,
+          duration: 190.301,
+          ended: false,
+          loop: false,
+          muted: false,
+          paused: false,
+          playbackRate: 1,
+          volume: 100,
+        },
+      ],
+      'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
+        { id: '82f93a00-2344-4367-9a2d-a2dcf038d5e1' },
+      ],
+      'x-sp-contexts_com_google_tag-manager_server-side_user_data_1': [
+        { email_address: 'foo@test.io' },
+      ],
+      'x-sp-contexts_com_snowplowanalytics_snowplow_mobile_context_1': [
+        {
+          osType: 'myOsType',
+          osVersion: 'myOsVersion',
+          deviceManufacturer: 'myDevMan',
+          deviceModel: 'myDevModel',
+        },
+      ],
+      'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1': [
+        {
+          userId: 'ee7b64e7-bee2-4b16-aaf5-5057e6bb4af3',
+          sessionId: '339013c3-ec6b-4935-b46e-487064bb1ce0',
+          eventIndex: 2,
+          sessionIndex: 2,
+          previousSessionId: '66609ccf-c661-4f10-97ce-af38220f5eb5',
+          storageMechanism: 'COOKIE_1',
+          firstEventId: '6bf091b9-db2f-4753-a844-51d72f6d8210',
+          firstEventTimestamp: '2022-10-10T13:48:18.208Z',
+        },
+      ],
+      'x-sp-tp2': selfDescEvent,
+      'x-sp-contexts': json.parse(selfDescEvent.co).data,
+      'x-sp-self_describing_event': json.parse(selfDescEvent.ue_pr).data,
+      client_id: '6bf091b9-db2f-4753-a844-51d72f6d8210',
+      user_id: 'foo@test.io',
+      user_data: { email_address: 'foo@test.io' },
+      ga_session_id: '339013c3-ec6b-4935-b46e-487064bb1ce0',
+      ga_session_number: '2',
+      'x-ga-mp2-seg': '1',
+      'x-ga-protocol_version': '2',
+      'x-ga-page_id': '82f93a00-2344-4367-9a2d-a2dcf038d5e1',
+      ip_override: '1.2.3.4',
+    };
+
+    assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
+    assertApi('runContainer').wasCalledWith(expectedCommonEvent, runContainerCb);
+setup: |-
   const json = require('JSON');
   const log = require('logToConsole');
 
   const mockData = {
     ipInclude: true,
-    populateSpProps: false,
     populateGaProps: true,
     serveSpJs: true,
     customSpJsName: 'example.js',
@@ -2518,6 +2953,8 @@ setup: |
     includeOriginalTp2Event: true,
     includeOriginalSelfDescribingEvent: false,
     includeOriginalContextsArray: false,
+    defaultUserId: true,
+    defaultClientId: true,
   };
 
   mock('getRequestHeader', (header) => {
@@ -2533,8 +2970,10 @@ setup: |
   });
 
   let runContainerCb;
+  let resultingCommonEvent;
   mock('runContainer', (e, cb) => {
     log('e', e);
+    resultingCommonEvent = e;
     runContainerCb = cb;
     cb();
   });
