@@ -602,12 +602,12 @@ const populateAdditionalProperties = (commonEvent, event) => {
       commonEvent[
         'x-sp-contexts_com_google_tag-manager_server-side_user_data_1'
       ][0];
-    commonEvent.user_data = {
+    commonEvent.user_data = cleanObject({
       email_address: userData.email_address,
       phone_number: userData.phone_number,
-    };
+    });
     if (userData.address) {
-      commonEvent.user_data.address = {
+      commonEvent.user_data.address = cleanObject({
         first_name: userData.address.first_name,
         last_name: userData.address.last_name,
         street: userData.address.street,
@@ -615,7 +615,7 @@ const populateAdditionalProperties = (commonEvent, event) => {
         region: userData.address.region,
         postal_code: userData.address.postal_code,
         country: userData.address.country,
-      };
+      });
     }
   }
 
