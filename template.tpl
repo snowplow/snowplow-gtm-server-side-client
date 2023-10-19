@@ -263,6 +263,170 @@ ___TEMPLATE_PARAMETERS___
             "valueValidators": []
           }
         ]
+      },
+      {
+        "type": "GROUP",
+        "name": "spContextGroup",
+        "displayName": "Snowplow Context Entities mapping",
+        "groupStyle": "ZIPPY_OPEN",
+        "subParams": [
+          {
+            "type": "CHECKBOX",
+            "name": "mergeEntities",
+            "checkboxText": "Merge selected Snowplow context entities",
+            "simpleValueType": true,
+            "help": "Whether to allow merging of Snowplow context data.",
+            "defaultValue": false
+          },
+          {
+            "type": "PARAM_TABLE",
+            "name": "entityMergeRules",
+            "displayName": "Context entities to merge",
+            "paramTableColumns": [
+              {
+                "param": {
+                  "type": "TEXT",
+                  "name": "schema",
+                  "displayName": "Schema",
+                  "simpleValueType": true,
+                  "help": "\u003cstrong\u003eRequired\u003c/strong\u003e: The schema of the context entity to merge.",
+                  "valueValidators": [
+                    {
+                      "type": "NON_EMPTY"
+                    }
+                  ]
+                },
+                "isUnique": true
+              },
+              {
+                "param": {
+                  "type": "SELECT",
+                  "name": "versionPolicy",
+                  "displayName": "Apply to all versions",
+                  "macrosInSelect": false,
+                  "selectItems": [
+                    {
+                      "value": "control",
+                      "displayValue": "False"
+                    },
+                    {
+                      "value": "free",
+                      "displayValue": "True"
+                    }
+                  ],
+                  "simpleValueType": true,
+                  "help": "Whether the rule applies to all versions of the context entity schema.",
+                  "valueValidators": [
+                    {
+                      "type": "NON_EMPTY"
+                    }
+                  ],
+                  "defaultValue": "control"
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "TEXT",
+                  "name": "prefix",
+                  "displayName": "Prefix",
+                  "simpleValueType": true,
+                  "help": "\u003cstrong\u003eOptional\u003c/strong\u003e: Specify a prefix to use for property names when merging.",
+                  "canBeEmptyString": true
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "SELECT",
+                  "name": "mergeLevel",
+                  "displayName": "Merge to",
+                  "macrosInSelect": false,
+                  "selectItems": [
+                    {
+                      "value": "rootLevel",
+                      "displayValue": "Event Properties"
+                    },
+                    {
+                      "value": "customPath",
+                      "displayValue": "Custom"
+                    }
+                  ],
+                  "simpleValueType": true,
+                  "valueValidators": [
+                    {
+                      "type": "NON_EMPTY"
+                    }
+                  ],
+                  "help": "Specify where to merge the context entity\u0027s properties.",
+                  "defaultValue": "rootLevel"
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "TEXT",
+                  "name": "customPath",
+                  "displayName": "Custom path",
+                  "simpleValueType": true,
+                  "help": "\u003cstrong\u003eOptional\u003c/strong\u003e: Specify the custom path to merge the context entity data to. This option applies only if the \u003cstrong\u003eMerge to\u003c/strong\u003e column is set to \u003cstrong\u003eCustom\u003c/strong\u003e, else the row is considered invalid.",
+                  "canBeEmptyString": true
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "SELECT",
+                  "name": "keepOriginal",
+                  "displayName": "Keep original mapping",
+                  "macrosInSelect": false,
+                  "selectItems": [
+                    {
+                      "value": "keep",
+                      "displayValue": "True"
+                    },
+                    {
+                      "value": "discard",
+                      "displayValue": "False"
+                    }
+                  ],
+                  "simpleValueType": true,
+                  "valueValidators": [
+                    {
+                      "type": "NON_EMPTY"
+                    }
+                  ],
+                  "help": "Specify whether to keep the original mapping of the context using its `x-sp-contexts_` prefixed name.",
+                  "defaultValue": "keep"
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "TEXT",
+                  "name": "customTransformFun",
+                  "displayName": "Custom transformation",
+                  "simpleValueType": true,
+                  "help": "\u003cstrong\u003eOptional\u003c/strong\u003e: Specify a variable returning a function that represents a custom transformation of the context data array to the desired object before merging."
+                },
+                "isUnique": false
+              }
+            ],
+            "help": "Using this table you can specify the rules to merge Snowplow context entity data to the Common Event.",
+            "enablingConditions": [
+              {
+                "paramName": "mergeEntities",
+                "paramValue": true,
+                "type": "EQUALS"
+              }
+            ],
+            "valueValidators": [
+              {
+                "type": "NON_EMPTY"
+              }
+            ]
+          }
+        ]
       }
     ]
   }
@@ -272,6 +436,7 @@ ___TEMPLATE_PARAMETERS___
 ___SANDBOXED_JS_FOR_SERVER___
 
 const claimRequest = require('claimRequest');
+const createRegex = require('createRegex');
 const getRequestPath = require('getRequestPath');
 const log = require('logToConsole');
 const sendHttpGet = require('sendHttpGet');
@@ -294,6 +459,7 @@ const fromBase64 = require('fromBase64');
 const makeInteger = require('makeInteger');
 const makeNumber = require('makeNumber');
 const makeString = require('makeString');
+const Math = require('Math');
 
 const requestPath = getRequestPath();
 const ua = getRequestHeader('user-agent');
@@ -353,6 +519,26 @@ const cleanObject = (obj) => {
   return target;
 };
 
+/**
+ * Does a clone of an object good enough for JSON Data Types
+ *
+ * @param {Object} obj - The object to clone
+ * @returs {Object} The clone
+ */
+const clone = (obj) => {
+  const objType = getType(obj);
+  if (objType === 'array' || objType === 'object') {
+    const result = objType === 'object' ? {} : [];
+    for (let key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        result[key] = clone(obj[key]);
+      }
+    }
+    return result;
+  }
+  return obj;
+};
+
 const sendResponse = (statusCode, body, headers) => {
   // Prevent CORS errors
   if (origin) {
@@ -403,19 +589,6 @@ const getContexts = (event) => {
   return contexts ? contexts.data : undefined;
 };
 
-const replaceAll = (str, substr, newSubstr) => {
-  let finished = false,
-    result = str;
-  while (!finished) {
-    const newStr = result.replace(substr, newSubstr);
-    if (result === newStr) {
-      finished = true;
-    }
-    result = newStr;
-  }
-  return result;
-};
-
 const isUpper = (value) => {
   return value === value.toUpperCase() && value !== value.toLowerCase();
 };
@@ -436,20 +609,42 @@ const toSnakeCase = (value) => {
 };
 
 const parseSchemaToMajor = (schema) => {
-  let fixed = replaceAll(
-    replaceAll(
-      schema.replace('iglu:', '').replace('jsonschema/', ''),
-      '.',
-      '_'
-    ),
-    '/',
-    '_'
-  );
+  const rexp = createRegex('[./]', 'g');
+  let fixed = schema
+    .replace('iglu:', '')
+    .replace('jsonschema/', '')
+    .replace(rexp, '_');
 
   for (let i = 0; i < 2; i++) {
     fixed = fixed.substring(0, fixed.lastIndexOf('-'));
   }
+
   return toSnakeCase(fixed).toLowerCase();
+};
+
+/**
+ * Parses a Snowplow schema to the expected major version format,
+ *  also prefixed so as to match the contexts' output of the Snowplow Client.
+ *
+ * @param {string} schema - The input schema
+ * @returns {string} The expected output client event property
+ */
+const parseSchemaToMajorKeyValue = (schema) => {
+  if (schema.indexOf('x-sp-contexts_') === 0) return schema;
+  if (schema.indexOf('contexts_') === 0) return 'x-sp-' + schema;
+  if (schema.indexOf('iglu:') === 0) {
+    const rexp = createRegex('[./]', 'g');
+    let fixed = schema
+      .replace('iglu:', '')
+      .replace('jsonschema/', '')
+      .replace(rexp, '_');
+
+    for (let i = 0; i < 2; i++) {
+      fixed = fixed.substring(0, fixed.lastIndexOf('-'));
+    }
+    return 'x-sp-contexts_' + fixed;
+  }
+  return schema;
 };
 
 const getSelfDescribing = (event) => {
@@ -577,15 +772,115 @@ const asArray = (x) => {
   return x;
 };
 
+/**
+ * Returns whether a string can be parsed as an integer.
+ *
+ * @param {string} x - The string to check
+ * @returns {boolean}
+ */
+const isInt = (x) => {
+  const y = Math.floor(x);
+  if (y === 0) {
+    return true;
+  }
+  return !!y;
+};
+
+/**
+ * Splits a string as a path by dot notation.
+ * (used by both getFromPath and setFromPath)
+ *
+ * @param {string} stringPath - The string to split
+ * @returns {string[]} The array of path components
+ */
+const splitStringPath = (stringPath) => {
+  return stringPath.split('.').filter((p) => !!p);
+};
+
+/**
+ * Sets the value in obj from path (side-effects).
+ * Overwrites if encounters existing properties, and creates nesting if needed.
+ * @example
+ * // returns {a: {b: {c: 3}}}
+ * setFromPath('a.b.c', 3, {a: {b: 0}})
+ * @example
+ * // returns {a: [{x: 4}]}
+ * setFromPath('a.0.x', 4, {a: {b: 0}})
+ * @example
+ * // returns {a: [4]}
+ * setFromPath('a.0', 4, {a: {b: 0}})
+ * @example
+ * // returns {a: [1,1,5]}
+ * setFromPath('a.2', 5, {a: [1,1,1]})
+ *
+ * @param {(string|string[])} path - The path where to set the value
+ * @param {*} val - The value to be set
+ * @param {Object} obj - The object to mutate
+ * @param {Object} [target] - The object that the path refers to
+ * @returns {Object} The object mutated with the value set
+ */
+const setFromPath = (path, val, obj, target) => {
+  const numAsIdx = true;
+  if (!target) {
+    target = obj;
+  }
+  if (getType(path) === 'string') {
+    path = splitStringPath(path);
+  }
+  if (path.length === 1) {
+    target[path[0]] = val;
+    return obj;
+  } else if (path.length > 1) {
+    const currKey = path[0];
+    const currType = getType(target[currKey]);
+    const nextKey = path[1];
+    const isNextNum = isInt(nextKey);
+    if (
+      (!isNextNum && currType !== 'object') ||
+      (isNextNum && !numAsIdx && currType !== 'object')
+    ) {
+      target[currKey] = {};
+    } else if (isNextNum && numAsIdx && currType !== 'array') {
+      target[currKey] = [];
+    }
+    return setFromPath(path.slice(1), val, obj, target[currKey]);
+  }
+  return obj;
+};
+
+/**
+ * Sets a property of an object to a value. (side effects)
+ * It is essentially a wrapper around setFromPath to enable
+ *  the "nest under" feature of the tag configuration.
+ *
+ * @param {string} prop - The property name to add
+ * @param {*} setVal - The value to be set
+ * @param {string} nest - The path to nest the property to
+ * @param {Object} obj - The object to add the property to
+ * @returns {Object} The object with the property added
+ */
+const addProperty = (prop, setVal, nest, obj) => {
+  if (nest && getType(nest) === 'string') {
+    const valType = getType(getFromPath(nest, obj));
+    if (['object', 'array'].indexOf(valType) < 0) {
+      setFromPath(nest, {}, obj);
+    }
+    setFromPath(prop, setVal, getFromPath(nest, obj));
+  } else {
+    setFromPath(prop, setVal, obj);
+  }
+  return obj;
+};
+
 /*
  * Creates an object, which has common event properties as properties.
  * (currently supported: clientId, userId)
  * Used to enable advanced common event settings.
  */
-const mkCommonProps = (xSpEvent) => {
+const mkCommonProps = (xSpEvent, config) => {
   const locations = {
-    clientId: data.defaultClientId ? defCommon.clientId : asArray(data.clientId),
-    userId: data.defaultUserId ? defCommon.userId : asArray(data.userId),
+    clientId: config.defaultClientId ? defCommon.clientId : asArray(config.clientId),
+    userId: config.defaultUserId ? defCommon.userId : asArray(config.userId),
   };
   const locatedValues = {
     clientId: locate(locations.clientId, xSpEvent, makeString),
@@ -594,11 +889,221 @@ const mkCommonProps = (xSpEvent) => {
   return cleanObject(locatedValues);
 };
 
-const populateAdditionalProperties = (commonEvent, event) => {
+/**
+ * Merges context entity data to target object according to rule.
+ *
+ * @param {Object} target - The target object
+ * @param {string} prop - The original ctx as property name
+ * @param {Object} ctx - The context data array
+ * @param {Object} rule - The rule to apply for merging
+ * @returns {Object} The target modified with context data merged
+ */
+const applyMergeRule = (target, prop, ctx, rule) => {
+  // we pass a clone of target to ensure no side effects to it
+  const transCtx = rule.transformFun(ctx, clone(target));
+  if (getType(transCtx) !== 'object') {
+    // do not proceed
+    return target;
+  }
+
+  for (let prop in transCtx) {
+    if (transCtx.hasOwnProperty(prop)) {
+      const name = rule.prefix ? rule.prefix.concat(prop) : prop;
+      switch (rule.mergeLevel) {
+      case 'customPath':
+        addProperty(name, transCtx[prop], rule.customPath, target);
+        break;
+      case 'rootLevel':
+        target[name] = transCtx[prop];
+        break;
+      default:
+      }
+    }
+  }
+
+  if (rule.keepOriginal === 'discard') {
+    target[prop] = undefined;
+  }
+
+  return target;
+};
+
+/**
+ * Removes the major version part from a schema reference if exists.
+ * @example
+ * // returns 'com_acme_test'
+ * mkVersionFree('com_acme_test_1')
+ * @example
+ * // returns 'com_acme_test'
+ * mkVersionFree('com_acme_test')
+ *
+ * @param {string} schemaRef - The schema
+ * @returns {string}
+ */
+const mkVersionFree = (schemaRef) => {
+  const versionRexp = createRegex('_[0-9]+$');
+  return schemaRef.replace(versionRexp, '');
+};
+
+/**
+ * Filters out invalid rules to avoid unintended behavior.
+ * (e.g. version control being ignored if version num is not included in name)
+ *
+ * @param {Object[]} rules - The provided rules
+ * @returns {Object[]} The valid rules
+ */
+const cleanRules = (rules) => {
+  const lastNumRexp = createRegex('[0-9]$');
+  return rules.filter((row) => {
+    const valid = {
+      versionLogic: true,
+      customLogic: true,
+      functionLogic: true,
+    };
+    if (row.versionPolicy === 'control') {
+      valid.versionLogic = !!row.schema.match(lastNumRexp);
+    }
+    if (row.mergeLevel === 'customPath') {
+      valid.customLogic = row.customPath !== '';
+    }
+    if (row.customTransformFun) {
+      valid.functionLogic = getType(row.customTransformFun) === 'function';
+    }
+
+    return valid.versionLogic && valid.customLogic && valid.functionLogic;
+  });
+};
+
+const defaultTransformation = (ctxDataArray, event) => {
+  if (ctxDataArray.length !== 1) {
+    // default transformation should not know
+    // what to do with multi-entity context
+    return undefined;
+  }
+
+  return ctxDataArray[0];
+};
+
+/**
+ * Parses the entity inclusion rules from the tag configuration.
+ *
+ * @param {Object} config - The Client configuration
+ * @returns {Object[]}
+ */
+const parseEntityMergeRules = (config) => {
+  const rules = config.entityMergeRules;
+  if (rules) {
+    const validRules = cleanRules(rules);
+    const parsedRules = validRules.map((row) => {
+      const schema = parseSchemaToMajorKeyValue(row.schema);
+      return {
+        ref: row.versionPolicy === 'control' ? schema : mkVersionFree(schema),
+        schema: schema,
+        prefix: row.prefix || '',
+        versionPolicy: row.versionPolicy,
+        mergeLevel: row.mergeLevel,
+        customPath: row.customPath || '',
+        keepOriginal: row.keepOriginal,
+        transformFun: row.customTransformFun || defaultTransformation,
+      };
+    });
+    return parsedRules;
+  }
+  return [];
+};
+
+/**
+ * Returns whether a property name is a Snowplow context/entity property.
+ *
+ * @param {string} prop - The property name
+ * @returns {boolean}
+ */
+const isSpContextsProp = (prop) => {
+  return prop.indexOf('x-sp-contexts_') === 0;
+};
+
+/**
+ * Given a list of entity references and an entity name,
+ * returns the index of a matching reference.
+ * Matching reference means whether the entity name starts with ref.
+ * @example
+ * // returns 0
+ * getReferenceIdx('com_test_test_1', ['com_test_test_1']);
+ * @example
+ * // returns 0
+ * getReferenceIdx('com_test_test_1', ['com_test_test']);
+ * @example
+ * // returns -1
+ * getReferenceIdx('com_test_test_1', ['com_test_test_2']);
+ * @example
+ * // returns -1
+ * getReferenceIdx('com_test_test', ['com_test_test_fail']);
+ * @example
+ * // returns -1
+ * getReferenceIdx('com_test_test_fail', ['com_test_test']);
+ *
+ * @param {string} entity - The entity name to match
+ * @param {string[]} refsList - An array of references
+ * @returns {integer}
+ */
+const getReferenceIdx = (entity, refsList) => {
+  const versionFreeEntity = mkVersionFree(entity);
+  for (let i = 0; i < refsList.length; i++) {
+    const okControl = entity.indexOf(refsList[i]) === 0;
+    const okFree = versionFreeEntity === mkVersionFree(refsList[i]);
+    if (okControl && okFree) {
+      return i;
+    }
+  }
+  return -1;
+};
+
+/**
+ * Does the final postprocessing step of the common event. At this stage
+ * the commonEvent is exactly at the format the Tags expect.
+ * This means that here we can reuse Tags logic.
+ * postprocess currently deals with:
+ * - client_id and user_id based on Advanced common event options
+ * - Snowplow Context Entities mapping/merging
+ *   (merge rules should not apply to multi-entity contexts)
+ *
+ * @param {Object} commonEvent - The common event contructed so far
+ * @param {Object} event - An incoming event payload
+ * @param {Object} config - The Client configuration
+ * @returns {Object} The final common event
+ */
+const postprocess = (commonEvent, event, config) => {
+  const fromAdvancedCommon = mkCommonProps(commonEvent, config);
+  commonEvent.client_id = fromAdvancedCommon.clientId;
+  commonEvent.user_id = fromAdvancedCommon.userId;
+  if (!config.mergeEntities) {
+    return commonEvent;
+  }
+  const mergeRules = parseEntityMergeRules(config);
+  const finalEntityRefs = mergeRules.map((r) => r.ref);
+  const final = clone(commonEvent);
+  for (let prop in commonEvent) {
+    if (commonEvent.hasOwnProperty(prop) && isSpContextsProp(prop)) {
+      const ctxData = commonEvent[prop];
+      if (getType(ctxData) !== 'array') {
+        continue;
+      }
+      const refIdx = getReferenceIdx(prop, finalEntityRefs);
+      if (refIdx >= 0) {
+        const rule = mergeRules[refIdx];
+        applyMergeRule(final, prop, ctxData, rule);
+      }
+    }
+  }
+  return final;
+};
+
+const populateAdditionalProperties = (commonEvent, event, config) => {
+  // user_data
   if (
     commonEvent['x-sp-contexts_com_google_tag-manager_server-side_user_data_1']
   ) {
-    let userData =
+    const userData =
       commonEvent[
         'x-sp-contexts_com_google_tag-manager_server-side_user_data_1'
       ][0];
@@ -619,6 +1124,7 @@ const populateAdditionalProperties = (commonEvent, event) => {
     }
   }
 
+  // GA props
   let sessionId = commonEvent['x-sp-domain_sessionid'];
   let sessionIndex = commonEvent['x-sp-domain_sessionidx'];
 
@@ -633,7 +1139,7 @@ const populateAdditionalProperties = (commonEvent, event) => {
     sessionIndex = mobileSessionData.sessionIndex;
   }
 
-  if (data.populateGaProps) {
+  if (config.populateGaProps) {
     commonEvent.ga_session_id = sessionId;
     commonEvent.ga_session_number = sessionIndex ? makeString(sessionIndex) : undefined;
     commonEvent['x-ga-mp2-seg'] = '1';
@@ -649,13 +1155,67 @@ const populateAdditionalProperties = (commonEvent, event) => {
     }
   }
 
-  // client_id and user_id
-  const fromAdvancedCommon = mkCommonProps(commonEvent);
-  commonEvent.client_id = fromAdvancedCommon.clientId;
-  commonEvent.user_id = fromAdvancedCommon.userId;
+  return commonEvent;
 };
 
-const mapSnowplowEnrichedEventToTagEvent = (event) => {
+
+const addSelfDescPropsEnriched = (commonEvent, event, config) => {
+  for (let prop in event) {
+    if (event.hasOwnProperty(prop)) {
+      if (prop.indexOf('unstruct_event') === 0) {
+        commonEvent[
+          'x-sp-self_describing_event' + prop.replace('unstruct_event', '')
+        ] = event[prop];
+      }
+
+      if (prop.indexOf('contexts_') === 0) {
+        commonEvent['x-sp-' + prop] = event[prop];
+      }
+    }
+  }
+  return commonEvent;
+};
+
+const addSelfDescPropsTp2 = (commonEvent, event, config) => {
+  const selfDescribing = getSelfDescribing(event);
+  if (selfDescribing) {
+    commonEvent[
+      'x-sp-self_describing_event_' + parseSchemaToMajor(selfDescribing.schema)
+    ] = selfDescribing.data;
+
+    if (config.includeOriginalSelfDescribingEvent) {
+      commonEvent['x-sp-self_describing_event'] = selfDescribing;
+    }
+  }
+
+  const contexts = getContexts(event);
+  if (contexts) {
+    contexts.forEach((c) => {
+      const schemaKey = parseSchemaToMajor(c.schema);
+
+      if (commonEvent['x-sp-contexts_' + schemaKey]) {
+        commonEvent['x-sp-contexts_' + schemaKey].push(c.data);
+      } else {
+        commonEvent['x-sp-contexts_' + schemaKey] = [c.data];
+      }
+    });
+
+    if (config.includeOriginalContextsArray) {
+      commonEvent['x-sp-contexts'] = contexts;
+    }
+  }
+  return commonEvent;
+};
+
+function withEnv(ev, cfg) {
+  return function(fun) {
+    return function(commonEv) {
+      return fun(commonEv, ev, cfg);
+    };
+  };
+}
+
+const mapSnowplowEnrichedEventToTagEvent = (event, config) => {
   const urlObject = parseUrl(event.page_url);
 
   let commonEvent = {
@@ -672,6 +1232,7 @@ const mapSnowplowEnrichedEventToTagEvent = (event) => {
     user_agent: event.useragent,
     origin: origin,
     host: host,
+    ip_override: config.ipInclude && !anonymous ? event.user_ipaddress : undefined,
     'x-sp-anonymous': anonymous,
     'x-sp-app_id': event.app_id,
     'x-sp-platform': event.platform,
@@ -797,30 +1358,18 @@ const mapSnowplowEnrichedEventToTagEvent = (event) => {
     'x-sp-true_tstamp': event.true_tstamp,
   };
 
-  for (let prop in event) {
-    if (event.hasOwnProperty(prop)) {
-      if (prop.indexOf('unstruct_event') === 0) {
-        commonEvent[
-          'x-sp-self_describing_event' + prop.replace('unstruct_event', '')
-        ] = event[prop];
-      }
+  const withCurrentEnv = withEnv(event, config);
+  const result = [
+    withCurrentEnv(addSelfDescPropsEnriched),
+    withCurrentEnv(populateAdditionalProperties),
+    withCurrentEnv(postprocess),
+    cleanObject
+  ].reduce((acc,curr) => curr(acc),commonEvent);
 
-      if (prop.indexOf('contexts_') === 0) {
-        commonEvent['x-sp-' + prop] = event[prop];
-      }
-    }
-  }
-
-  populateAdditionalProperties(commonEvent, event);
-
-  if (data.ipInclude && !anonymous) {
-    commonEvent.ip_override = event.user_ipaddress;
-  }
-
-  return cleanObject(commonEvent);
+  return result;
 };
 
-const mapSnowplowTp2EventToTagEvent = (event) => {
+const mapSnowplowTp2EventToTagEvent = (event, config) => {
   const urlObject = parseUrl(event.url);
   const resolution = splitResolution(event.res);
   const viewport = splitResolution(event.vp);
@@ -840,6 +1389,7 @@ const mapSnowplowTp2EventToTagEvent = (event) => {
     user_agent: ua,
     origin: origin,
     host: host,
+    ip_override: config.ipInclude && !anonymous ? getRemoteAddress() : undefined,
     'x-sp-anonymous': anonymous,
     'x-sp-app_id': event.aid,
     'x-sp-platform': event.p,
@@ -887,47 +1437,18 @@ const mapSnowplowTp2EventToTagEvent = (event) => {
     'x-sp-tr_currency': event.tr_cu,
     'x-sp-ti_currency': event.ti_cu,
     'x-sp-dvce_sent_tstamp': event.stm,
+    'x-sp-tp2': config.includeOriginalTp2Event ? event : undefined,
   };
 
-  if (data.includeOriginalTp2Event) {
-    commonEvent['x-sp-tp2'] = event;
-  }
+  const withCurrentEnv = withEnv(event, config);
+  const result = [
+    withCurrentEnv(addSelfDescPropsTp2),
+    withCurrentEnv(populateAdditionalProperties),
+    withCurrentEnv(postprocess),
+    cleanObject
+  ].reduce((acc,curr) => curr(acc), commonEvent);
 
-  const selfDescribing = getSelfDescribing(event);
-  if (selfDescribing) {
-    commonEvent[
-      'x-sp-self_describing_event_' + parseSchemaToMajor(selfDescribing.schema)
-    ] = selfDescribing.data;
-
-    if (data.includeOriginalSelfDescribingEvent) {
-      commonEvent['x-sp-self_describing_event'] = selfDescribing;
-    }
-  }
-
-  const contexts = getContexts(event);
-  if (contexts) {
-    contexts.forEach((c) => {
-      const schemaKey = parseSchemaToMajor(c.schema);
-
-      if (commonEvent['x-sp-contexts_' + schemaKey]) {
-        commonEvent['x-sp-contexts_' + schemaKey].push(c.data);
-      } else {
-        commonEvent['x-sp-contexts_' + schemaKey] = [c.data];
-      }
-    });
-
-    if (data.includeOriginalContextsArray) {
-      commonEvent['x-sp-contexts'] = contexts;
-    }
-  }
-
-  populateAdditionalProperties(commonEvent, event);
-
-  if (data.ipInclude && !anonymous) {
-    commonEvent.ip_override = getRemoteAddress();
-  }
-
-  return cleanObject(commonEvent);
+  return result;
 };
 
 const requestParts = requestPath.split('/');
@@ -1015,7 +1536,7 @@ if (
   if (events) {
     events.forEach((event) => {
       // Pass the event to a virtual container
-      runContainer(mapSnowplowTp2EventToTagEvent(event), () => {
+      runContainer(mapSnowplowTp2EventToTagEvent(event, data), () => {
         log('Tags complete, sending response...');
         sendResponse(200, responseBody);
       });
@@ -1042,7 +1563,7 @@ if (requestPath === '/com.snowplowanalytics.snowplow/enriched') {
   if (events) {
     events.forEach((event) => {
       // Pass the event to a virtual container
-      runContainer(mapSnowplowEnrichedEventToTagEvent(event), () => {
+      runContainer(mapSnowplowEnrichedEventToTagEvent(event, data), () => {
         log('Tags complete, sending response...');
         sendResponse(200, responseBody);
       });
@@ -1213,6 +1734,22 @@ ___TESTS___
 scenarios:
 - name: v3 spjs proxied
   code: |
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+    };
+
+    // mocks
     mock('getRequestPath', () => {
       return '/3.0.0/sp.js';
     });
@@ -1242,6 +1779,22 @@ scenarios:
     assertApi('returnResponse').wasCalled();
 - name: v2 spjs proxied
   code: |
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+    };
+
+    // mocks
     mock('getRequestPath', () => {
       return '/2.18.0/sp.js';
     });
@@ -1271,6 +1824,22 @@ scenarios:
     assertApi('returnResponse').wasCalled();
 - name: v3 spjs with custom name proxied
   code: |
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+    };
+
+    // mocks
     mock('getRequestPath', () => {
       return '/3.1.0/example.js';
     });
@@ -1300,6 +1869,22 @@ scenarios:
     assertApi('returnResponse').wasCalled();
 - name: v2 spjs with custom name proxied
   code: |
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+    };
+
+    // mocks
     mock('getRequestPath', () => {
       return '/2.18.1/example.js';
     });
@@ -1329,46 +1914,32 @@ scenarios:
     assertApi('returnResponse').wasCalled();
 - name: Container run with tp2 page view
   code: |
-    let page_view_tp2 = json.stringify({
-      schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
-      data: [
-        {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-        },
-      ],
-    });
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+    };
+    const testEvent = page_view_tp2;
 
-    mock('getRequestPath', () => {
-      return '/com.snowplowanalytics.snowplow/tp2';
-    });
-
-    mock('getRequestMethod', () => {
-      return 'POST';
-    });
-
-    mock('getRequestBody', () => {
-      return page_view_tp2;
+    // mocks
+    mock('getRequestPath', '/com.snowplowanalytics.snowplow/tp2');
+    mock('getRequestMethod', 'POST');
+    mock('getRequestBody', json.stringify(testEvent));
+    let runContainerCallback;
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      runContainerCallback = cb;
+      cb();
     });
 
     runCode(mockData);
@@ -1398,463 +1969,43 @@ scenarios:
       'POST, GET, OPTIONS'
     );
     assertApi('returnResponse').wasCalled();
-    assertApi('runContainer').wasCalledWith(
-      {
-        event_name: 'page_view',
-        client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
-        language: 'en-GB',
-        page_encoding: 'UTF-8',
-        page_hostname: 'snowplowanalytics.com',
-        page_location: 'https://snowplowanalytics.com/',
-        page_path: '/',
-        page_referrer: 'referer',
-        page_title:
-          'Collect, manage and operationalize behavioral data at scale | Snowplow',
-        screen_resolution: '1920x1080',
-        viewport_size: '745x1302',
-        user_agent: 'user-agent',
-        origin: 'origin',
-        host: 'host',
-        'x-sp-app_id': 'website',
-        'x-sp-platform': 'web',
-        'x-sp-dvce_created_tstamp': '1628586512246',
-        'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
-        'x-sp-name_tracker': 'sp',
-        'x-sp-v_tracker': 'js-2.18.1',
-        'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
-        'x-sp-domain_sessionidx': 1,
-        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
-        'x-sp-br_cookies': '1',
-        'x-sp-br_colordepth': '24',
-        'x-sp-br_viewwidth': 745,
-        'x-sp-br_viewheight': 1302,
-        'x-sp-dvce_screenwidth': 1920,
-        'x-sp-dvce_screenheight': 1080,
-        'x-sp-doc_charset': 'UTF-8',
-        'x-sp-doc_width': 730,
-        'x-sp-doc_height': 12393,
-        'x-sp-dvce_sent_tstamp': '1628586512248',
-        'x-sp-tp2': {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-        },
-        'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
-          { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
-        ],
-        'x-sp-contexts_org_w3_performance_timing_1': [
-          {
-            navigationStart: 1628586508610,
-            unloadEventStart: 0,
-            unloadEventEnd: 0,
-            redirectStart: 0,
-            redirectEnd: 0,
-            fetchStart: 1628586508610,
-            domainLookupStart: 1628586508637,
-            domainLookupEnd: 1628586508691,
-            connectStart: 1628586508691,
-            connectEnd: 1628586508763,
-            secureConnectionStart: 1628586508721,
-            requestStart: 1628586508763,
-            responseStart: 1628586508797,
-            responseEnd: 1628586508821,
-            domLoading: 1628586509076,
-            domInteractive: 1628586509381,
-            domContentLoadedEventStart: 1628586509408,
-            domContentLoadedEventEnd: 1628586509417,
-            domComplete: 1628586510332,
-            loadEventStart: 1628586510332,
-            loadEventEnd: 1628586510334,
-          },
-        ],
-        ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
-        ga_session_number: '1',
-        'x-ga-mp2-seg': '1',
-        'x-ga-protocol_version': '2',
-        'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
-        ip_override: '1.2.3.4',
-      },
-      runContainerCb
-    );
-- name: Container run with tp2 page view - with identified user
-  code: |
-    let page_view_tp2 = json.stringify({
-      schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
-      data: [
-        {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-          uid: 'snow123',
-        },
-      ],
-    });
 
-    mock('getRequestPath', () => {
-      return '/com.snowplowanalytics.snowplow/tp2';
-    });
-
-    mock('getRequestMethod', () => {
-      return 'POST';
-    });
-
-    mock('getRequestBody', () => {
-      return page_view_tp2;
-    });
-
-    runCode(mockData);
-
-    assertApi('claimRequest').wasCalled();
-    assertApi('setResponseStatus').wasCalledWith(200);
-    assertApi('setResponseBody').wasCalledWith('ok');
-    assertApi('getRequestHeader').wasCalledWith('user-agent');
-    assertApi('getRequestHeader').wasCalledWith('host');
-    assertApi('getRequestHeader').wasCalledWith('referer');
-    assertApi('getRequestHeader').wasCalledWith('SP-Anonymous');
-    assertApi('getRequestHeader').wasCalledWith('origin');
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Origin',
-      'origin'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Credentials',
-      'true'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Headers',
-      'Content-Type, SP-Anonymous'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Methods',
-      'POST, GET, OPTIONS'
-    );
-    assertApi('returnResponse').wasCalled();
-    assertApi('runContainer').wasCalledWith(
-      {
-        event_name: 'page_view',
-        client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
-        language: 'en-GB',
-        page_encoding: 'UTF-8',
-        page_hostname: 'snowplowanalytics.com',
-        page_location: 'https://snowplowanalytics.com/',
-        page_path: '/',
-        page_referrer: 'referer',
-        page_title:
-          'Collect, manage and operationalize behavioral data at scale | Snowplow',
-        screen_resolution: '1920x1080',
-        user_id: 'snow123',
-        viewport_size: '745x1302',
-        user_agent: 'user-agent',
-        origin: 'origin',
-        host: 'host',
-        'x-sp-app_id': 'website',
-        'x-sp-platform': 'web',
-        'x-sp-dvce_created_tstamp': '1628586512246',
-        'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
-        'x-sp-name_tracker': 'sp',
-        'x-sp-v_tracker': 'js-2.18.1',
-        'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
-        'x-sp-domain_sessionidx': 1,
-        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
-        'x-sp-user_id': 'snow123',
-        'x-sp-br_cookies': '1',
-        'x-sp-br_colordepth': '24',
-        'x-sp-br_viewwidth': 745,
-        'x-sp-br_viewheight': 1302,
-        'x-sp-dvce_screenwidth': 1920,
-        'x-sp-dvce_screenheight': 1080,
-        'x-sp-doc_charset': 'UTF-8',
-        'x-sp-doc_width': 730,
-        'x-sp-doc_height': 12393,
-        'x-sp-dvce_sent_tstamp': '1628586512248',
-        'x-sp-tp2': {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-          uid: 'snow123',
-        },
-        'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
-          { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
-        ],
-        'x-sp-contexts_org_w3_performance_timing_1': [
-          {
-            navigationStart: 1628586508610,
-            unloadEventStart: 0,
-            unloadEventEnd: 0,
-            redirectStart: 0,
-            redirectEnd: 0,
-            fetchStart: 1628586508610,
-            domainLookupStart: 1628586508637,
-            domainLookupEnd: 1628586508691,
-            connectStart: 1628586508691,
-            connectEnd: 1628586508763,
-            secureConnectionStart: 1628586508721,
-            requestStart: 1628586508763,
-            responseStart: 1628586508797,
-            responseEnd: 1628586508821,
-            domLoading: 1628586509076,
-            domInteractive: 1628586509381,
-            domContentLoadedEventStart: 1628586509408,
-            domContentLoadedEventEnd: 1628586509417,
-            domComplete: 1628586510332,
-            loadEventStart: 1628586510332,
-            loadEventEnd: 1628586510334,
-          },
-        ],
-        ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
-        ga_session_number: '1',
-        'x-ga-mp2-seg': '1',
-        'x-ga-protocol_version': '2',
-        'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
-        ip_override: '1.2.3.4',
-      },
-      runContainerCb
-    );
-- name: Container run with tp2 page view and SP-Anonymous enabled
-  code: |
-    let page_view_tp2 = json.stringify({
-      schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
-      data: [
-        {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-          uid: 'snow123',
-        },
-      ],
-    });
-
-    mock('getRequestHeader', (header) => {
-      if (header === 'SP-Anonymous') {
-        return '*';
-      }
-
-      return header;
-    });
-
-    mock('getRequestPath', () => {
-      return '/com.snowplowanalytics.snowplow/tp2';
-    });
-
-    mock('getRequestMethod', () => {
-      return 'POST';
-    });
-
-    mock('getRequestBody', () => {
-      return page_view_tp2;
-    });
-
-    runCode(mockData);
-
-    assertApi('claimRequest').wasCalled();
-    assertApi('setResponseStatus').wasCalledWith(200);
-    assertApi('setResponseBody').wasCalledWith('ok');
-    assertApi('getRequestHeader').wasCalledWith('user-agent');
-    assertApi('getRequestHeader').wasCalledWith('host');
-    assertApi('getRequestHeader').wasCalledWith('referer');
-    assertApi('getRequestHeader').wasCalledWith('SP-Anonymous');
-    assertApi('getRequestHeader').wasCalledWith('origin');
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Origin',
-      'origin'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Credentials',
-      'true'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Headers',
-      'Content-Type, SP-Anonymous'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Methods',
-      'POST, GET, OPTIONS'
-    );
-    assertApi('returnResponse').wasCalled();
-    assertApi('runContainer').wasCalledWith(
-      {
-        event_name: 'page_view',
-        client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
-        language: 'en-GB',
-        page_encoding: 'UTF-8',
-        page_hostname: 'snowplowanalytics.com',
-        page_location: 'https://snowplowanalytics.com/',
-        page_path: '/',
-        page_referrer: 'referer',
-        page_title:
-          'Collect, manage and operationalize behavioral data at scale | Snowplow',
-        screen_resolution: '1920x1080',
-        user_id: 'snow123',
-        viewport_size: '745x1302',
-        user_agent: 'user-agent',
-        origin: 'origin',
-        host: 'host',
-        'x-sp-anonymous': '*',
-        'x-sp-app_id': 'website',
-        'x-sp-platform': 'web',
-        'x-sp-dvce_created_tstamp': '1628586512246',
-        'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
-        'x-sp-name_tracker': 'sp',
-        'x-sp-v_tracker': 'js-2.18.1',
-        'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
-        'x-sp-domain_sessionidx': 1,
-        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
-        'x-sp-user_id': 'snow123',
-        'x-sp-br_cookies': '1',
-        'x-sp-br_colordepth': '24',
-        'x-sp-br_viewwidth': 745,
-        'x-sp-br_viewheight': 1302,
-        'x-sp-dvce_screenwidth': 1920,
-        'x-sp-dvce_screenheight': 1080,
-        'x-sp-doc_charset': 'UTF-8',
-        'x-sp-doc_width': 730,
-        'x-sp-doc_height': 12393,
-        'x-sp-dvce_sent_tstamp': '1628586512248',
-        'x-sp-tp2': {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-          uid: 'snow123',
-        },
-        'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
-          { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
-        ],
-        'x-sp-contexts_org_w3_performance_timing_1': [
-          {
-            navigationStart: 1628586508610,
-            unloadEventStart: 0,
-            unloadEventEnd: 0,
-            redirectStart: 0,
-            redirectEnd: 0,
-            fetchStart: 1628586508610,
-            domainLookupStart: 1628586508637,
-            domainLookupEnd: 1628586508691,
-            connectStart: 1628586508691,
-            connectEnd: 1628586508763,
-            secureConnectionStart: 1628586508721,
-            requestStart: 1628586508763,
-            responseStart: 1628586508797,
-            responseEnd: 1628586508821,
-            domLoading: 1628586509076,
-            domInteractive: 1628586509381,
-            domContentLoadedEventStart: 1628586509408,
-            domContentLoadedEventEnd: 1628586509417,
-            domComplete: 1628586510332,
-            loadEventStart: 1628586510332,
-            loadEventEnd: 1628586510334,
-          },
-        ],
-        ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
-        ga_session_number: '1',
-        'x-ga-mp2-seg': '1',
-        'x-ga-protocol_version': '2',
-        'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
-      },
-      runContainerCb
-    );
-- name: Container run with /i GET page view
-  code: |
-    mock('getRequestPath', () => {
-      return '/i';
-    });
-
-    mock('getRequestQueryParameters', () => {
-      return {
+    const expectedCommonEvent = {
+      event_name: 'page_view',
+      client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
+      language: 'en-GB',
+      page_encoding: 'UTF-8',
+      page_hostname: 'snowplowanalytics.com',
+      page_location: 'https://snowplowanalytics.com/',
+      page_path: '/',
+      page_referrer: 'referer',
+      page_title:
+        'Collect, manage and operationalize behavioral data at scale | Snowplow',
+      screen_resolution: '1920x1080',
+      viewport_size: '745x1302',
+      user_agent: 'user-agent',
+      origin: 'origin',
+      host: 'host',
+      'x-sp-app_id': 'website',
+      'x-sp-platform': 'web',
+      'x-sp-dvce_created_tstamp': '1628586512246',
+      'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
+      'x-sp-name_tracker': 'sp',
+      'x-sp-v_tracker': 'js-2.18.1',
+      'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
+      'x-sp-domain_sessionidx': 1,
+      'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+      'x-sp-br_cookies': '1',
+      'x-sp-br_colordepth': '24',
+      'x-sp-br_viewwidth': 745,
+      'x-sp-br_viewheight': 1302,
+      'x-sp-dvce_screenwidth': 1920,
+      'x-sp-dvce_screenheight': 1080,
+      'x-sp-doc_charset': 'UTF-8',
+      'x-sp-doc_width': 730,
+      'x-sp-doc_height': 12393,
+      'x-sp-dvce_sent_tstamp': '1628586512248',
+      'x-sp-tp2': {
         e: 'pv',
         url: 'https://snowplowanalytics.com/',
         page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
@@ -1877,11 +2028,423 @@ scenarios:
         sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
         duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
         stm: '1628586512248',
-      };
+      },
+      'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
+        { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
+      ],
+      'x-sp-contexts_org_w3_performance_timing_1': [
+        {
+          navigationStart: 1628586508610,
+          unloadEventStart: 0,
+          unloadEventEnd: 0,
+          redirectStart: 0,
+          redirectEnd: 0,
+          fetchStart: 1628586508610,
+          domainLookupStart: 1628586508637,
+          domainLookupEnd: 1628586508691,
+          connectStart: 1628586508691,
+          connectEnd: 1628586508763,
+          secureConnectionStart: 1628586508721,
+          requestStart: 1628586508763,
+          responseStart: 1628586508797,
+          responseEnd: 1628586508821,
+          domLoading: 1628586509076,
+          domInteractive: 1628586509381,
+          domContentLoadedEventStart: 1628586509408,
+          domContentLoadedEventEnd: 1628586509417,
+          domComplete: 1628586510332,
+          loadEventStart: 1628586510332,
+          loadEventEnd: 1628586510334,
+        },
+      ],
+      ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
+      ga_session_number: '1',
+      'x-ga-mp2-seg': '1',
+      'x-ga-protocol_version': '2',
+      'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
+      ip_override: '1.2.3.4',
+    };
+    assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
+    assertApi('runContainer').wasCalledWith(
+      expectedCommonEvent,
+      runContainerCallback
+    );
+- name: Container run with tp2 page view - with identified user
+  code: |
+    const funA = (x, ev) => x[0];
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: true,
+      entityMergeRules: [
+        {
+          schema: 'iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0',
+          versionPolicy: 'control',
+          prefix: 'x-test-',
+          mergeLevel: 'rootLevel',
+          customPath: '',
+          keepOriginal: 'keep',
+          customTransformFun: funA,
+        },
+        {
+          schema: 'x-sp-contexts_org_w3_performance_timing_1',
+          versionPolicy: 'control',
+          prefix: 'x-test-perf_timing_',
+          mergeLevel: 'customPath',
+          customPath: 'foobar',
+          keepOriginal: 'discard',
+          customTransformFun: '',
+        },
+      ],
+    };
+    const testEvent = json.parse(json.stringify(page_view_tp2));
+    testEvent.data[0].uid = 'snow123';
+
+    // mocks
+    mock('getRequestPath', '/com.snowplowanalytics.snowplow/tp2');
+    mock('getRequestMethod', 'POST');
+    mock('getRequestBody', json.stringify(testEvent));
+    let runContainerCallback;
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      runContainerCallback = cb;
+      cb();
     });
 
-    mock('getRequestMethod', () => {
-      return 'GET';
+    runCode(mockData);
+
+    assertApi('claimRequest').wasCalled();
+    assertApi('setResponseStatus').wasCalledWith(200);
+    assertApi('setResponseBody').wasCalledWith('ok');
+    assertApi('getRequestHeader').wasCalledWith('user-agent');
+    assertApi('getRequestHeader').wasCalledWith('host');
+    assertApi('getRequestHeader').wasCalledWith('referer');
+    assertApi('getRequestHeader').wasCalledWith('SP-Anonymous');
+    assertApi('getRequestHeader').wasCalledWith('origin');
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Origin',
+      'origin'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Credentials',
+      'true'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Headers',
+      'Content-Type, SP-Anonymous'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Methods',
+      'POST, GET, OPTIONS'
+    );
+    assertApi('returnResponse').wasCalled();
+
+    const expectedCommonEvent = {
+      event_name: 'page_view',
+      client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
+      language: 'en-GB',
+      page_encoding: 'UTF-8',
+      page_hostname: 'snowplowanalytics.com',
+      page_location: 'https://snowplowanalytics.com/',
+      page_path: '/',
+      page_referrer: 'referer',
+      page_title:
+        'Collect, manage and operationalize behavioral data at scale | Snowplow',
+      screen_resolution: '1920x1080',
+      user_id: 'snow123',
+      viewport_size: '745x1302',
+      user_agent: 'user-agent',
+      origin: 'origin',
+      host: 'host',
+      'x-sp-app_id': 'website',
+      'x-sp-platform': 'web',
+      'x-sp-dvce_created_tstamp': '1628586512246',
+      'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
+      'x-sp-name_tracker': 'sp',
+      'x-sp-v_tracker': 'js-2.18.1',
+      'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
+      'x-sp-domain_sessionidx': 1,
+      'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+      'x-sp-user_id': 'snow123',
+      'x-sp-br_cookies': '1',
+      'x-sp-br_colordepth': '24',
+      'x-sp-br_viewwidth': 745,
+      'x-sp-br_viewheight': 1302,
+      'x-sp-dvce_screenwidth': 1920,
+      'x-sp-dvce_screenheight': 1080,
+      'x-sp-doc_charset': 'UTF-8',
+      'x-sp-doc_width': 730,
+      'x-sp-doc_height': 12393,
+      'x-sp-dvce_sent_tstamp': '1628586512248',
+      'x-sp-tp2': {
+        e: 'pv',
+        url: 'https://snowplowanalytics.com/',
+        page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
+        tv: 'js-2.18.1',
+        tna: 'sp',
+        aid: 'website',
+        p: 'web',
+        tz: 'Europe/London',
+        lang: 'en-GB',
+        cs: 'UTF-8',
+        res: '1920x1080',
+        cd: '24',
+        cookie: '1',
+        eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
+        dtm: '1628586512246',
+        cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
+        vp: '745x1302',
+        ds: '730x12393',
+        vid: '1',
+        sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
+        duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
+        stm: '1628586512248',
+        uid: 'snow123',
+      },
+      'x-test-id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
+      'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
+        { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
+      ],
+      foobar: {
+        'x-test-perf_timing_navigationStart': 1628586508610,
+        'x-test-perf_timing_unloadEventStart': 0,
+        'x-test-perf_timing_unloadEventEnd': 0,
+        'x-test-perf_timing_redirectStart': 0,
+        'x-test-perf_timing_redirectEnd': 0,
+        'x-test-perf_timing_fetchStart': 1628586508610,
+        'x-test-perf_timing_domainLookupStart': 1628586508637,
+        'x-test-perf_timing_domainLookupEnd': 1628586508691,
+        'x-test-perf_timing_connectStart': 1628586508691,
+        'x-test-perf_timing_connectEnd': 1628586508763,
+        'x-test-perf_timing_secureConnectionStart': 1628586508721,
+        'x-test-perf_timing_requestStart': 1628586508763,
+        'x-test-perf_timing_responseStart': 1628586508797,
+        'x-test-perf_timing_responseEnd': 1628586508821,
+        'x-test-perf_timing_domLoading': 1628586509076,
+        'x-test-perf_timing_domInteractive': 1628586509381,
+        'x-test-perf_timing_domContentLoadedEventStart': 1628586509408,
+        'x-test-perf_timing_domContentLoadedEventEnd': 1628586509417,
+        'x-test-perf_timing_domComplete': 1628586510332,
+        'x-test-perf_timing_loadEventStart': 1628586510332,
+        'x-test-perf_timing_loadEventEnd': 1628586510334,
+      },
+      ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
+      ga_session_number: '1',
+      'x-ga-mp2-seg': '1',
+      'x-ga-protocol_version': '2',
+      'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
+      ip_override: '1.2.3.4',
+    };
+    assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
+    assertApi('runContainer').wasCalledWith(
+      expectedCommonEvent,
+      runContainerCallback
+    );
+- name: Container run with tp2 page-view and SP-Anonymous enabled
+  code: |
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+    };
+    const testEvent = json.parse(json.stringify(page_view_tp2));
+    testEvent.data[0].uid = 'snow123';
+
+    // mocks
+    mock('getRequestPath', '/com.snowplowanalytics.snowplow/tp2');
+    mock('getRequestMethod', 'POST');
+    mock('getRequestBody', json.stringify(testEvent));
+    mock('getRequestHeader', (header) => {
+      if (header === 'SP-Anonymous') {
+        return '*';
+      }
+      return header;
+    });
+    let runContainerCallback;
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      runContainerCallback = cb;
+      cb();
+    });
+
+    runCode(mockData);
+
+    assertApi('claimRequest').wasCalled();
+    assertApi('setResponseStatus').wasCalledWith(200);
+    assertApi('setResponseBody').wasCalledWith('ok');
+    assertApi('getRequestHeader').wasCalledWith('user-agent');
+    assertApi('getRequestHeader').wasCalledWith('host');
+    assertApi('getRequestHeader').wasCalledWith('referer');
+    assertApi('getRequestHeader').wasCalledWith('SP-Anonymous');
+    assertApi('getRequestHeader').wasCalledWith('origin');
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Origin',
+      'origin'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Credentials',
+      'true'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Headers',
+      'Content-Type, SP-Anonymous'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Methods',
+      'POST, GET, OPTIONS'
+    );
+    assertApi('returnResponse').wasCalled();
+
+    const expectedCommonEvent = {
+      event_name: 'page_view',
+      client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
+      language: 'en-GB',
+      page_encoding: 'UTF-8',
+      page_hostname: 'snowplowanalytics.com',
+      page_location: 'https://snowplowanalytics.com/',
+      page_path: '/',
+      page_referrer: 'referer',
+      page_title:
+        'Collect, manage and operationalize behavioral data at scale | Snowplow',
+      screen_resolution: '1920x1080',
+      user_id: 'snow123',
+      viewport_size: '745x1302',
+      user_agent: 'user-agent',
+      origin: 'origin',
+      host: 'host',
+      'x-sp-anonymous': '*',
+      'x-sp-app_id': 'website',
+      'x-sp-platform': 'web',
+      'x-sp-dvce_created_tstamp': '1628586512246',
+      'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
+      'x-sp-name_tracker': 'sp',
+      'x-sp-v_tracker': 'js-2.18.1',
+      'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
+      'x-sp-domain_sessionidx': 1,
+      'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+      'x-sp-user_id': 'snow123',
+      'x-sp-br_cookies': '1',
+      'x-sp-br_colordepth': '24',
+      'x-sp-br_viewwidth': 745,
+      'x-sp-br_viewheight': 1302,
+      'x-sp-dvce_screenwidth': 1920,
+      'x-sp-dvce_screenheight': 1080,
+      'x-sp-doc_charset': 'UTF-8',
+      'x-sp-doc_width': 730,
+      'x-sp-doc_height': 12393,
+      'x-sp-dvce_sent_tstamp': '1628586512248',
+      'x-sp-tp2': {
+        e: 'pv',
+        url: 'https://snowplowanalytics.com/',
+        page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
+        tv: 'js-2.18.1',
+        tna: 'sp',
+        aid: 'website',
+        p: 'web',
+        tz: 'Europe/London',
+        lang: 'en-GB',
+        cs: 'UTF-8',
+        res: '1920x1080',
+        cd: '24',
+        cookie: '1',
+        eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
+        dtm: '1628586512246',
+        cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
+        vp: '745x1302',
+        ds: '730x12393',
+        vid: '1',
+        sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
+        duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
+        stm: '1628586512248',
+        uid: 'snow123',
+      },
+      'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
+        { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
+      ],
+      'x-sp-contexts_org_w3_performance_timing_1': [
+        {
+          navigationStart: 1628586508610,
+          unloadEventStart: 0,
+          unloadEventEnd: 0,
+          redirectStart: 0,
+          redirectEnd: 0,
+          fetchStart: 1628586508610,
+          domainLookupStart: 1628586508637,
+          domainLookupEnd: 1628586508691,
+          connectStart: 1628586508691,
+          connectEnd: 1628586508763,
+          secureConnectionStart: 1628586508721,
+          requestStart: 1628586508763,
+          responseStart: 1628586508797,
+          responseEnd: 1628586508821,
+          domLoading: 1628586509076,
+          domInteractive: 1628586509381,
+          domContentLoadedEventStart: 1628586509408,
+          domContentLoadedEventEnd: 1628586509417,
+          domComplete: 1628586510332,
+          loadEventStart: 1628586510332,
+          loadEventEnd: 1628586510334,
+        },
+      ],
+      ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
+      ga_session_number: '1',
+      'x-ga-mp2-seg': '1',
+      'x-ga-protocol_version': '2',
+      'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
+    };
+    assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
+    assertApi('runContainer').wasCalledWith(
+      expectedCommonEvent,
+      runContainerCallback
+    );
+- name: Container run with /i GET page view
+  code: |
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+    };
+    const testEvent = page_view_tp2;
+
+    // mocks
+    mock('getRequestPath', '/i');
+    mock('getRequestQueryParameters', testEvent.data[0]);
+    mock('getRequestMethod', 'GET');
+    let runContainerCallback;
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      runContainerCallback = cb;
+      cb();
     });
 
     runCode(mockData);
@@ -1912,146 +2475,179 @@ scenarios:
       'POST, GET, OPTIONS'
     );
     assertApi('returnResponse').wasCalled();
-    assertApi('runContainer').wasCalledWith(
-      {
-        event_name: 'page_view',
-        client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
-        language: 'en-GB',
-        page_encoding: 'UTF-8',
-        page_hostname: 'snowplowanalytics.com',
-        page_location: 'https://snowplowanalytics.com/',
-        page_path: '/',
-        page_referrer: 'referer',
-        page_title:
-          'Collect, manage and operationalize behavioral data at scale | Snowplow',
-        screen_resolution: '1920x1080',
-        viewport_size: '745x1302',
-        user_agent: 'user-agent',
-        origin: 'origin',
-        host: 'host',
-        'x-sp-app_id': 'website',
-        'x-sp-platform': 'web',
-        'x-sp-dvce_created_tstamp': '1628586512246',
-        'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
-        'x-sp-name_tracker': 'sp',
-        'x-sp-v_tracker': 'js-2.18.1',
-        'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
-        'x-sp-domain_sessionidx': 1,
-        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
-        'x-sp-br_cookies': '1',
-        'x-sp-br_colordepth': '24',
-        'x-sp-br_viewwidth': 745,
-        'x-sp-br_viewheight': 1302,
-        'x-sp-dvce_screenwidth': 1920,
-        'x-sp-dvce_screenheight': 1080,
-        'x-sp-doc_charset': 'UTF-8',
-        'x-sp-doc_width': 730,
-        'x-sp-doc_height': 12393,
-        'x-sp-dvce_sent_tstamp': '1628586512248',
-        'x-sp-tp2': {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-        },
-        'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
-          { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
-        ],
-        'x-sp-contexts_org_w3_performance_timing_1': [
-          {
-            navigationStart: 1628586508610,
-            unloadEventStart: 0,
-            unloadEventEnd: 0,
-            redirectStart: 0,
-            redirectEnd: 0,
-            fetchStart: 1628586508610,
-            domainLookupStart: 1628586508637,
-            domainLookupEnd: 1628586508691,
-            connectStart: 1628586508691,
-            connectEnd: 1628586508763,
-            secureConnectionStart: 1628586508721,
-            requestStart: 1628586508763,
-            responseStart: 1628586508797,
-            responseEnd: 1628586508821,
-            domLoading: 1628586509076,
-            domInteractive: 1628586509381,
-            domContentLoadedEventStart: 1628586509408,
-            domContentLoadedEventEnd: 1628586509417,
-            domComplete: 1628586510332,
-            loadEventStart: 1628586510332,
-            loadEventEnd: 1628586510334,
-          },
-        ],
-        ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
-        ga_session_number: '1',
-        'x-ga-mp2-seg': '1',
-        'x-ga-protocol_version': '2',
-        'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
-        ip_override: '1.2.3.4',
+
+    const expectedCommonEvent = {
+      event_name: 'page_view',
+      client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
+      language: 'en-GB',
+      page_encoding: 'UTF-8',
+      page_hostname: 'snowplowanalytics.com',
+      page_location: 'https://snowplowanalytics.com/',
+      page_path: '/',
+      page_referrer: 'referer',
+      page_title:
+        'Collect, manage and operationalize behavioral data at scale | Snowplow',
+      screen_resolution: '1920x1080',
+      viewport_size: '745x1302',
+      user_agent: 'user-agent',
+      origin: 'origin',
+      host: 'host',
+      'x-sp-app_id': 'website',
+      'x-sp-platform': 'web',
+      'x-sp-dvce_created_tstamp': '1628586512246',
+      'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
+      'x-sp-name_tracker': 'sp',
+      'x-sp-v_tracker': 'js-2.18.1',
+      'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
+      'x-sp-domain_sessionidx': 1,
+      'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+      'x-sp-br_cookies': '1',
+      'x-sp-br_colordepth': '24',
+      'x-sp-br_viewwidth': 745,
+      'x-sp-br_viewheight': 1302,
+      'x-sp-dvce_screenwidth': 1920,
+      'x-sp-dvce_screenheight': 1080,
+      'x-sp-doc_charset': 'UTF-8',
+      'x-sp-doc_width': 730,
+      'x-sp-doc_height': 12393,
+      'x-sp-dvce_sent_tstamp': '1628586512248',
+      'x-sp-tp2': {
+        e: 'pv',
+        url: 'https://snowplowanalytics.com/',
+        page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
+        tv: 'js-2.18.1',
+        tna: 'sp',
+        aid: 'website',
+        p: 'web',
+        tz: 'Europe/London',
+        lang: 'en-GB',
+        cs: 'UTF-8',
+        res: '1920x1080',
+        cd: '24',
+        cookie: '1',
+        eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
+        dtm: '1628586512246',
+        cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
+        vp: '745x1302',
+        ds: '730x12393',
+        vid: '1',
+        sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
+        duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
+        stm: '1628586512248',
       },
-      runContainerCb
+      'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
+        { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
+      ],
+      'x-sp-contexts_org_w3_performance_timing_1': [
+        {
+          navigationStart: 1628586508610,
+          unloadEventStart: 0,
+          unloadEventEnd: 0,
+          redirectStart: 0,
+          redirectEnd: 0,
+          fetchStart: 1628586508610,
+          domainLookupStart: 1628586508637,
+          domainLookupEnd: 1628586508691,
+          connectStart: 1628586508691,
+          connectEnd: 1628586508763,
+          secureConnectionStart: 1628586508721,
+          requestStart: 1628586508763,
+          responseStart: 1628586508797,
+          responseEnd: 1628586508821,
+          domLoading: 1628586509076,
+          domInteractive: 1628586509381,
+          domContentLoadedEventStart: 1628586509408,
+          domContentLoadedEventEnd: 1628586509417,
+          domComplete: 1628586510332,
+          loadEventStart: 1628586510332,
+          loadEventEnd: 1628586510334,
+        },
+      ],
+      ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
+      ga_session_number: '1',
+      'x-ga-mp2-seg': '1',
+      'x-ga-protocol_version': '2',
+      'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
+      ip_override: '1.2.3.4',
+    };
+    assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
+    assertApi('runContainer').wasCalledWith(
+      expectedCommonEvent,
+      runContainerCallback
     );
 - name: Container run with user_data context
   code: |
-    let page_view_tp2 = json.stringify({
-      schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
-      data: [
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: false,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: true,
+      entityMergeRules: [
         {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5nb29nbGUudGFnLW1hbmFnZXIuc2VydmVyLXNpZGUvdXNlcl9kYXRhL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsgCiAgICAgICAgImVtYWlsX2FkZHJlc3MiOiAiZm9vQGV4YW1wbGUuY29tIiwKICAgICAgICAicGhvbmVfbnVtYmVyIjogIisxNTU1MTIzNDU2NyIsCiAgICAgICAgImFkZHJlc3MiOiB7CiAgICAgICAgICAiZmlyc3RfbmFtZSI6ICJKYW5lIiwKICAgICAgICAgICJsYXN0X25hbWUiOiAiRG9lIiwKICAgICAgICAgICJzdHJlZXQiOiAiMTIzIEZha2UgU3QiLAogICAgICAgICAgImNpdHkiOiAiU2FuIEZyYW5jaXNjbyIsCiAgICAgICAgICAicmVnaW9uIjogIkNBIiwKICAgICAgICAgICJwb3N0YWxfY29kZSI6ICI5NDAxNiIsCiAgICAgICAgICAiY291bnRyeSI6ICJVUyIgCiAgICAgICAgfQogICAgICB9CiAgICB9CiAgXQp9Cg',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-          uid: 'snow123',
+          schema: 'iglu:org.whatwg/media_element/jsonschema/1-0-0',
+          versionPolicy: 'free',
+          prefix: '',
+          mergeLevel: 'rootLevel',
+          customPath: '',
+          keepOriginal: 'discard',
+          customTransformFun: '',
+        },
+        {
+          schema: 'contexts_com_snowplowanalytics_snowplow_media_player',
+          versionPolicy: 'free',
+          prefix: 'x-test-mp_',
+          mergeLevel: 'customPath',
+          customPath: 'user_data',
+          keepOriginal: 'discard',
+          customTransformFun: '',
+        },
+        {
+          schema:
+            'iglu:com.snowplowanalytics.snowplow/mobile_context/jsonschema/1-0-2',
+          versionPolicy: 'control',
+          prefix: '',
+          mergeLevel: 'rootLevel',
+          customPath: '',
+          keepOriginal: 'discard',
+          customTransformFun: '',
+        },
+        {
+          schema: 'x-sp-contexts_com_snowplowanalytics_snowplow_client_session',
+          versionPolicy: 'free',
+          prefix: '',
+          mergeLevel: 'customPath',
+          customPath: 'user_data.client_session.0',
+          keepOriginal: 'keep',
+          customTransformFun: '',
         },
       ],
-    });
+    };
+    const testEvent = mediaEventTp2;
 
-    mock('getRequestPath', () => {
-      return '/com.snowplowanalytics.snowplow/tp2';
+    // mocks
+    mock('getRequestPath', '/com.snowplowanalytics.snowplow/tp2');
+    mock('getRequestMethod', 'POST');
+    mock('getRequestBody', json.stringify(testEvent));
+    mock('getRequestHeader', (header) => {
+      if (header === 'SP-Anonymous') {
+        return '*';
+      }
+      return header;
     });
-
-    mock('getRequestMethod', () => {
-      return 'POST';
-    });
-
-    mock('getRequestBody', () => {
-      return page_view_tp2;
+    let runContainerCallback;
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      runContainerCallback = cb;
+      cb();
     });
 
     runCode(mockData);
@@ -2081,113 +2677,72 @@ scenarios:
       'POST, GET, OPTIONS'
     );
     assertApi('returnResponse').wasCalled();
-    assertApi('runContainer').wasCalledWith(
-      {
-        event_name: 'page_view',
-        client_id: 'd54a1904-7798-401a-be0b-1a83bea73634',
-        language: 'en-GB',
-        page_encoding: 'UTF-8',
-        page_hostname: 'snowplowanalytics.com',
-        page_location: 'https://snowplowanalytics.com/',
-        page_path: '/',
-        page_referrer: 'referer',
-        page_title:
-          'Collect, manage and operationalize behavioral data at scale | Snowplow',
-        screen_resolution: '1920x1080',
-        user_id: 'snow123',
-        viewport_size: '745x1302',
-        user_agent: 'user-agent',
-        origin: 'origin',
-        host: 'host',
-        'x-sp-app_id': 'website',
-        'x-sp-platform': 'web',
-        'x-sp-dvce_created_tstamp': '1628586512246',
-        'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
-        'x-sp-name_tracker': 'sp',
-        'x-sp-v_tracker': 'js-2.18.1',
-        'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
-        'x-sp-domain_sessionidx': 1,
-        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
-        'x-sp-user_id': 'snow123',
-        'x-sp-br_cookies': '1',
-        'x-sp-br_colordepth': '24',
-        'x-sp-br_viewwidth': 745,
-        'x-sp-br_viewheight': 1302,
-        'x-sp-dvce_screenwidth': 1920,
-        'x-sp-dvce_screenheight': 1080,
-        'x-sp-doc_charset': 'UTF-8',
-        'x-sp-doc_width': 730,
-        'x-sp-doc_height': 12393,
-        'x-sp-dvce_sent_tstamp': '1628586512248',
-        'x-sp-tp2': {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'js-2.18.1',
-          tna: 'sp',
-          aid: 'website',
-          p: 'web',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5nb29nbGUudGFnLW1hbmFnZXIuc2VydmVyLXNpZGUvdXNlcl9kYXRhL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsgCiAgICAgICAgImVtYWlsX2FkZHJlc3MiOiAiZm9vQGV4YW1wbGUuY29tIiwKICAgICAgICAicGhvbmVfbnVtYmVyIjogIisxNTU1MTIzNDU2NyIsCiAgICAgICAgImFkZHJlc3MiOiB7CiAgICAgICAgICAiZmlyc3RfbmFtZSI6ICJKYW5lIiwKICAgICAgICAgICJsYXN0X25hbWUiOiAiRG9lIiwKICAgICAgICAgICJzdHJlZXQiOiAiMTIzIEZha2UgU3QiLAogICAgICAgICAgImNpdHkiOiAiU2FuIEZyYW5jaXNjbyIsCiAgICAgICAgICAicmVnaW9uIjogIkNBIiwKICAgICAgICAgICJwb3N0YWxfY29kZSI6ICI5NDAxNiIsCiAgICAgICAgICAiY291bnRyeSI6ICJVUyIgCiAgICAgICAgfQogICAgICB9CiAgICB9CiAgXQp9Cg',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-          uid: 'snow123',
-        },
-        'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
-          { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
-        ],
-        'x-sp-contexts_org_w3_performance_timing_1': [
-          {
-            navigationStart: 1628586508610,
-            unloadEventStart: 0,
-            unloadEventEnd: 0,
-            redirectStart: 0,
-            redirectEnd: 0,
-            fetchStart: 1628586508610,
-            domainLookupStart: 1628586508637,
-            domainLookupEnd: 1628586508691,
-            connectStart: 1628586508691,
-            connectEnd: 1628586508763,
-            secureConnectionStart: 1628586508721,
-            requestStart: 1628586508763,
-            responseStart: 1628586508797,
-            responseEnd: 1628586508821,
-            domLoading: 1628586509076,
-            domInteractive: 1628586509381,
-            domContentLoadedEventStart: 1628586509408,
-            domContentLoadedEventEnd: 1628586509417,
-            domComplete: 1628586510332,
-            loadEventStart: 1628586510332,
-            loadEventEnd: 1628586510334,
-          },
-        ],
-        'x-sp-contexts_com_google_tag-manager_server-side_user_data_1': [
-          {
-            email_address: 'foo@example.com',
-            phone_number: '+15551234567',
-            address: {
-              first_name: 'Jane',
-              last_name: 'Doe',
-              street: '123 Fake St',
-              city: 'San Francisco',
-              region: 'CA',
-              postal_code: '94016',
-              country: 'US',
-            },
-          },
-        ],
-        user_data: {
+
+    const expectedCommonEvent = {
+      event_name: 'media_player_event',
+      language: 'en-US',
+      page_encoding: 'windows-1252',
+      page_hostname: 'localhost',
+      page_location: 'http://localhost:8000/',
+      page_path: '/',
+      page_referrer: 'referer',
+      screen_resolution: '1920x1080',
+      viewport_size: '744x971',
+      user_agent: 'user-agent',
+      origin: 'origin',
+      host: 'host',
+      'x-sp-anonymous': '*',
+      'x-sp-app_id': 'media-test',
+      'x-sp-platform': 'web',
+      'x-sp-dvce_created_tstamp': '1697609091769',
+      'x-sp-event_id': '011c85b9-0ee1-4f01-a9ca-7bd11db0c811',
+      'x-sp-name_tracker': 'spTest',
+      'x-sp-v_tracker': 'js-3.16.0',
+      'x-sp-domain_sessionid': '6ce287c3-e58d-4501-9586-1062d9b2d80c',
+      'x-sp-domain_sessionidx': 1,
+      'x-sp-domain_userid': 'fd97960a-bcb9-4530-8446-e370e1952e5e',
+      'x-sp-user_id': 'media_tester',
+      'x-sp-br_cookies': '1',
+      'x-sp-br_colordepth': '24',
+      'x-sp-br_viewwidth': 744,
+      'x-sp-br_viewheight': 971,
+      'x-sp-dvce_screenwidth': 1920,
+      'x-sp-dvce_screenheight': 1080,
+      'x-sp-doc_charset': 'windows-1252',
+      'x-sp-doc_width': 729,
+      'x-sp-doc_height': 1211,
+      'x-sp-dvce_sent_tstamp': '1697609091773',
+      'x-sp-self_describing_event_com_snowplowanalytics_snowplow_media_player_event_1':
+        { type: 'pause' },
+      // contexts_org_whatwg_media_element_1 props at root level
+      htmlId: 'bunny-mp4',
+      mediaType: 'VIDEO',
+      autoPlay: false,
+      buffered: [{ start: 0, end: 13.424 }],
+      controls: true,
+      currentSrc:
+        'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4',
+      defaultMuted: false,
+      defaultPlaybackRate: 1,
+      // error: null, // gets cleaned-up by cleanObject
+      networkState: 'NETWORK_LOADING',
+      preload: 'metadata',
+      readyState: 'HAVE_ENOUGH_DATA',
+      seekable: [{ start: 0, end: 596.48 }],
+      seeking: false,
+      src: 'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4',
+      textTracks: [],
+      fileExtension: 'mp4',
+      fullscreen: false,
+      pictureInPicture: false,
+      'x-sp-contexts_org_whatwg_video_element_1': [
+        { poster: '', videoHeight: 360, videoWidth: 640 },
+      ],
+      'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
+        { id: '586b753d-c961-4852-a164-f641c9a4404f' },
+      ],
+      'x-sp-contexts_com_google_tag-manager_server-side_user_data_1': [
+        {
           email_address: 'foo@example.com',
           phone_number: '+15551234567',
           address: {
@@ -2200,58 +2755,98 @@ scenarios:
             country: 'US',
           },
         },
-        ga_session_id: 'e7580b71-227b-4868-9ea9-322a263ce885',
-        ga_session_number: '1',
-        'x-ga-mp2-seg': '1',
-        'x-ga-protocol_version': '2',
-        'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
-        ip_override: '1.2.3.4',
-      },
-      runContainerCb
-    );
-- name: Container run with client_session context from mobile tracker
-  code: |+
-    let page_view_tp2 = json.stringify({
-      schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
-      data: [
+      ],
+      osType: 'testOsType',
+      osVersion: 'testOsVersion',
+      deviceManufacturer: 'testDevMan',
+      deviceModel: 'testDevModel',
+      'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1': [
         {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'ios-2.0.0',
-          tna: 'sp',
-          aid: 'my-app',
-          p: 'mob',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jbGllbnRfc2Vzc2lvbi9qc29uc2NoZW1hLzEtMC0xIiwKICAgICAgImRhdGEiOiB7IAogICAgICAgICJ1c2VySWQiOiAiYTQ5NDIwMzUtZGU0MS00YmJkLWI0NjYtOWMxZWY3ZjdmYjY1IiwKICAgICAgICAic2Vzc2lvbklkIjogImM1OTMzZDU4LWI4YzItNDlkZC1iYWQ1LTYxNTRkNzFhN2I5ZCIsCiAgICAgICAgInNlc3Npb25JbmRleCI6ICI1IgogICAgICB9CiAgICB9CiAgXQp9Cg',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-          uid: 'snow123',
+          userId: 'fd97960a-bcb9-4530-8446-e370e1952e5e',
+          sessionId: '6ce287c3-e58d-4501-9586-1062d9b2d80c',
+          eventIndex: 4,
+          sessionIndex: 1,
+          previousSessionId: null,
+          storageMechanism: 'COOKIE_1',
+          firstEventId: 'f8525402-1483-4fc4-8fc7-3eea2559127e',
+          firstEventTimestamp: '2023-10-18T06:04:39.898Z',
         },
       ],
-    });
+      user_data: {
+        email_address: 'foo@example.com',
+        phone_number: '+15551234567',
+        address: {
+          first_name: 'Jane',
+          last_name: 'Doe',
+          street: '123 Fake St',
+          city: 'San Francisco',
+          region: 'CA',
+          postal_code: '94016',
+          country: 'US',
+        },
+        'x-test-mp_currentTime': 5.801593,
 
-    mock('getRequestPath', () => {
-      return '/com.snowplowanalytics.snowplow/tp2';
-    });
+        'x-test-mp_duration': 596.48,
+        'x-test-mp_ended': false,
+        'x-test-mp_loop': false,
+        'x-test-mp_muted': false,
+        'x-test-mp_paused': true,
+        'x-test-mp_playbackRate': 1,
+        'x-test-mp_volume': 100,
+        client_session: [
+          {
+            userId: 'fd97960a-bcb9-4530-8446-e370e1952e5e',
+            sessionId: '6ce287c3-e58d-4501-9586-1062d9b2d80c',
+            eventIndex: 4,
+            sessionIndex: 1,
+            previousSessionId: null,
+            storageMechanism: 'COOKIE_1',
+            firstEventId: 'f8525402-1483-4fc4-8fc7-3eea2559127e',
+            firstEventTimestamp: '2023-10-18T06:04:39.898Z',
+          },
+        ],
+      },
+      ga_session_id: '6ce287c3-e58d-4501-9586-1062d9b2d80c',
+      ga_session_number: '1',
+      'x-ga-mp2-seg': '1',
+      'x-ga-protocol_version': '2',
+      'x-ga-page_id': '586b753d-c961-4852-a164-f641c9a4404f',
+      client_id: 'fd97960a-bcb9-4530-8446-e370e1952e5e',
+      user_id: 'media_tester',
+    };
+    assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
+    assertApi('runContainer').wasCalledWith(
+      expectedCommonEvent,
+      runContainerCallback
+    );
+- name: Container run with client_session context from mobile tracker
+  code: |
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+    };
+    const testEvent = page_view_mobile;
 
-    mock('getRequestMethod', () => {
-      return 'POST';
-    });
-
-    mock('getRequestBody', () => {
-      return page_view_tp2;
+    // mocks
+    mock('getRequestPath', '/com.snowplowanalytics.snowplow/tp2');
+    mock('getRequestMethod', 'POST');
+    mock('getRequestBody', json.stringify(testEvent));
+    let runContainerCallback;
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      runContainerCallback = cb;
+      cb();
     });
 
     runCode(mockData);
@@ -2282,172 +2877,275 @@ scenarios:
     );
     assertApi('returnResponse').wasCalled();
 
-
-    assertApi('runContainer').wasCalledWith(
-      {
-        event_name: 'page_view',
-        client_id: 'a4942035-de41-4bbd-b466-9c1ef7f7fb65',
-        language: 'en-GB',
-        page_encoding: 'UTF-8',
-        page_hostname: 'snowplowanalytics.com',
-        page_location: 'https://snowplowanalytics.com/',
-        page_path: '/',
-        page_referrer: 'referer',
-        page_title:
-          'Collect, manage and operationalize behavioral data at scale | Snowplow',
-        screen_resolution: '1920x1080',
-        user_id: 'snow123',
-        viewport_size: '745x1302',
-        user_agent: 'user-agent',
-        origin: 'origin',
-        host: 'host',
-        'x-sp-app_id': 'my-app',
-        'x-sp-platform': 'mob',
-        'x-sp-dvce_created_tstamp': '1628586512246',
-        'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
-        'x-sp-name_tracker': 'sp',
-        'x-sp-v_tracker': 'ios-2.0.0',
-        'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
-        'x-sp-domain_sessionidx': 1,
-        'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
-        'x-sp-user_id': 'snow123',
-        'x-sp-br_cookies': '1',
-        'x-sp-br_colordepth': '24',
-        'x-sp-br_viewwidth': 745,
-        'x-sp-br_viewheight': 1302,
-        'x-sp-dvce_screenwidth': 1920,
-        'x-sp-dvce_screenheight': 1080,
-        'x-sp-doc_charset': 'UTF-8',
-        'x-sp-doc_width': 730,
-        'x-sp-doc_height': 12393,
-        'x-sp-dvce_sent_tstamp': '1628586512248',
-        'x-sp-tp2': {
-          e: 'pv',
-          url: 'https://snowplowanalytics.com/',
-          page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
-          tv: 'ios-2.0.0',
-          tna: 'sp',
-          aid: 'my-app',
-          p: 'mob',
-          tz: 'Europe/London',
-          lang: 'en-GB',
-          cs: 'UTF-8',
-          res: '1920x1080',
-          cd: '24',
-          cookie: '1',
-          eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
-          dtm: '1628586512246',
-          cx: 'ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jbGllbnRfc2Vzc2lvbi9qc29uc2NoZW1hLzEtMC0xIiwKICAgICAgImRhdGEiOiB7IAogICAgICAgICJ1c2VySWQiOiAiYTQ5NDIwMzUtZGU0MS00YmJkLWI0NjYtOWMxZWY3ZjdmYjY1IiwKICAgICAgICAic2Vzc2lvbklkIjogImM1OTMzZDU4LWI4YzItNDlkZC1iYWQ1LTYxNTRkNzFhN2I5ZCIsCiAgICAgICAgInNlc3Npb25JbmRleCI6ICI1IgogICAgICB9CiAgICB9CiAgXQp9Cg',
-          vp: '745x1302',
-          ds: '730x12393',
-          vid: '1',
-          sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
-          duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
-          stm: '1628586512248',
-          uid: 'snow123',
-        },
-        'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
-          { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
-        ],
-        'x-sp-contexts_org_w3_performance_timing_1': [
-          {
-            navigationStart: 1628586508610,
-            unloadEventStart: 0,
-            unloadEventEnd: 0,
-            redirectStart: 0,
-            redirectEnd: 0,
-            fetchStart: 1628586508610,
-            domainLookupStart: 1628586508637,
-            domainLookupEnd: 1628586508691,
-            connectStart: 1628586508691,
-            connectEnd: 1628586508763,
-            secureConnectionStart: 1628586508721,
-            requestStart: 1628586508763,
-            responseStart: 1628586508797,
-            responseEnd: 1628586508821,
-            domLoading: 1628586509076,
-            domInteractive: 1628586509381,
-            domContentLoadedEventStart: 1628586509408,
-            domContentLoadedEventEnd: 1628586509417,
-            domComplete: 1628586510332,
-            loadEventStart: 1628586510332,
-            loadEventEnd: 1628586510334,
-          },
-        ],
-        'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1': [
-          {
-            userId: 'a4942035-de41-4bbd-b466-9c1ef7f7fb65',
-            sessionId: 'c5933d58-b8c2-49dd-bad5-6154d71a7b9d',
-            sessionIndex: '5',
-          },
-        ],
-        ga_session_id: 'c5933d58-b8c2-49dd-bad5-6154d71a7b9d',
-        ga_session_number: '5',
-        'x-ga-mp2-seg': '1',
-        'x-ga-protocol_version': '2',
-        'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
-        ip_override: '1.2.3.4',
+    const expectedCommonEvent = {
+      event_name: 'page_view',
+      client_id: 'a4942035-de41-4bbd-b466-9c1ef7f7fb65',
+      language: 'en-GB',
+      page_encoding: 'UTF-8',
+      page_hostname: 'snowplowanalytics.com',
+      page_location: 'https://snowplowanalytics.com/',
+      page_path: '/',
+      page_referrer: 'referer',
+      page_title:
+        'Collect, manage and operationalize behavioral data at scale | Snowplow',
+      screen_resolution: '1920x1080',
+      user_id: 'snow123',
+      viewport_size: '745x1302',
+      user_agent: 'user-agent',
+      origin: 'origin',
+      host: 'host',
+      'x-sp-app_id': 'my-app',
+      'x-sp-platform': 'mob',
+      'x-sp-dvce_created_tstamp': '1628586512246',
+      'x-sp-event_id': '8676de79-0eba-4435-ad95-8a41a8a0129c',
+      'x-sp-name_tracker': 'sp',
+      'x-sp-v_tracker': 'ios-2.0.0',
+      'x-sp-domain_sessionid': 'e7580b71-227b-4868-9ea9-322a263ce885',
+      'x-sp-domain_sessionidx': 1,
+      'x-sp-domain_userid': 'd54a1904-7798-401a-be0b-1a83bea73634',
+      'x-sp-user_id': 'snow123',
+      'x-sp-br_cookies': '1',
+      'x-sp-br_colordepth': '24',
+      'x-sp-br_viewwidth': 745,
+      'x-sp-br_viewheight': 1302,
+      'x-sp-dvce_screenwidth': 1920,
+      'x-sp-dvce_screenheight': 1080,
+      'x-sp-doc_charset': 'UTF-8',
+      'x-sp-doc_width': 730,
+      'x-sp-doc_height': 12393,
+      'x-sp-dvce_sent_tstamp': '1628586512248',
+      'x-sp-tp2': {
+        e: 'pv',
+        url: 'https://snowplowanalytics.com/',
+        page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
+        tv: 'ios-2.0.0',
+        tna: 'sp',
+        aid: 'my-app',
+        p: 'mob',
+        tz: 'Europe/London',
+        lang: 'en-GB',
+        cs: 'UTF-8',
+        res: '1920x1080',
+        cd: '24',
+        cookie: '1',
+        eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
+        dtm: '1628586512246',
+        cx: 'ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jbGllbnRfc2Vzc2lvbi9qc29uc2NoZW1hLzEtMC0xIiwKICAgICAgImRhdGEiOiB7IAogICAgICAgICJ1c2VySWQiOiAiYTQ5NDIwMzUtZGU0MS00YmJkLWI0NjYtOWMxZWY3ZjdmYjY1IiwKICAgICAgICAic2Vzc2lvbklkIjogImM1OTMzZDU4LWI4YzItNDlkZC1iYWQ1LTYxNTRkNzFhN2I5ZCIsCiAgICAgICAgInNlc3Npb25JbmRleCI6ICI1IgogICAgICB9CiAgICB9CiAgXQp9Cg',
+        vp: '745x1302',
+        ds: '730x12393',
+        vid: '1',
+        sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
+        duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
+        stm: '1628586512248',
+        uid: 'snow123',
       },
-      runContainerCb
-    );
+      'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
+        { id: 'a86c42e5-b831-45c8-b706-e214c26b4b3d' },
+      ],
+      'x-sp-contexts_org_w3_performance_timing_1': [
+        {
+          navigationStart: 1628586508610,
+          unloadEventStart: 0,
+          unloadEventEnd: 0,
+          redirectStart: 0,
+          redirectEnd: 0,
+          fetchStart: 1628586508610,
+          domainLookupStart: 1628586508637,
+          domainLookupEnd: 1628586508691,
+          connectStart: 1628586508691,
+          connectEnd: 1628586508763,
+          secureConnectionStart: 1628586508721,
+          requestStart: 1628586508763,
+          responseStart: 1628586508797,
+          responseEnd: 1628586508821,
+          domLoading: 1628586509076,
+          domInteractive: 1628586509381,
+          domContentLoadedEventStart: 1628586509408,
+          domContentLoadedEventEnd: 1628586509417,
+          domComplete: 1628586510332,
+          loadEventStart: 1628586510332,
+          loadEventEnd: 1628586510334,
+        },
+      ],
+      'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1': [
+        {
+          userId: 'a4942035-de41-4bbd-b466-9c1ef7f7fb65',
+          sessionId: 'c5933d58-b8c2-49dd-bad5-6154d71a7b9d',
+          sessionIndex: '5',
+        },
+      ],
+      ga_session_id: 'c5933d58-b8c2-49dd-bad5-6154d71a7b9d',
+      ga_session_number: '5',
+      'x-ga-mp2-seg': '1',
+      'x-ga-protocol_version': '2',
+      'x-ga-page_id': 'a86c42e5-b831-45c8-b706-e214c26b4b3d',
+      ip_override: '1.2.3.4',
+    };
 
+    assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
+    assertApi('runContainer').wasCalledWith(
+      expectedCommonEvent,
+      runContainerCallback
+    );
 - name: Container run with enriched event
   code: |
-    let enriched = json.stringify({
-      geo_location: '37.443604,-122.4124',
-      app_id: 'angry-birds',
-      platform: 'web',
-      etl_tstamp: '2017-01-26T00:01:25.292Z',
-      collector_tstamp: '2013-11-26T00:02:05Z',
-      dvce_created_tstamp: '2013-11-26T00:03:57.885Z',
-      event: 'page_view',
-      event_id: 'c6ef3124-b53a-4b13-a233-0088f79dcbcb',
-      txn_id: 41828,
-      name_tracker: 'cloudfront-1',
-      v_tracker: 'js-2.1.0',
-      v_collector: 'clj-tomcat-0.1.0',
-      v_etl: 'serde-0.5.2',
-      user_id: 'jon.doe@email.com',
-      user_ipaddress: '92.231.54.234',
-      user_fingerprint: '2161814971',
-      domain_userid: 'bc2e92ec6c204a14',
-      domain_sessionidx: 3,
-      network_userid: 'ecdff4d0-9175-40ac-a8bb-325c49733607',
-      geo_country: 'US',
-      geo_region: 'TX',
-      geo_city: 'New York',
-      geo_zipcode: '94109',
-      geo_latitude: 37.443604,
-      geo_longitude: -122.4124,
-      geo_region_name: 'Florida',
-      ip_isp: 'FDN Communications',
-      ip_organization: 'Bouygues Telecom',
-      ip_domain: 'nuvox.net',
-      ip_netspeed: 'Cable/DSL',
-      page_url: 'http://www.snowplowanalytics.com',
+    const makeTabMap = require('makeTableMap');
+    const parseUrl = require('parseUrl');
+    const funA = (ietfData, event) => {
+      const result = {};
+      const cookiesMap = makeTabMap(ietfData, 'name', 'value');
+      const gaCookie = cookiesMap._ga;
+      if (gaCookie) {
+        result.new_client_id = gaCookie.split('.')[0];
+      }
+      const parsedUrl = parseUrl(event.page_location);
+      const hostname = parsedUrl.hostname.replace('www.', '');
+      if (hostname === 'snowplowanalytics.com') {
+        result.something_new = 'test_value';
+      }
+      return result;
+    };
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: true,
+      entityMergeRules: [
+        {
+          schema: 'contexts_org_schema_web_page_1',
+          versionPolicy: 'control',
+          prefix: '',
+          mergeLevel: 'customPath',
+          customPath: 'foo.bar',
+          keepOriginal: 'keep',
+          customTransformFun: '',
+        },
+        {
+          schema: 'contexts_org_w3_performance_timing_1',
+          versionPolicy: 'free',
+          prefix: 'x_test_perf_',
+          mergeLevel: 'rootLevel',
+          customPath: '',
+          keepOriginal: 'keep',
+          customTransformFun: '',
+        },
+        {
+          schema: 'contexts_org_ietf_http_cookie_1',
+          versionPolicy: 'free',
+          prefix: '',
+          mergeLevel: 'rootLevel',
+          customPath: '',
+          keepOriginal: 'discard',
+          customTransformFun: funA,
+        },
+      ],
+    };
+    const testEvent = enrichedLinkClick;
+
+    // mocks
+    mock('getRequestPath', '/com.snowplowanalytics.snowplow/enriched');
+    mock('getRequestMethod', 'POST');
+    mock('getRequestBody', json.stringify(testEvent));
+    let runContainerCallback;
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      runContainerCallback = cb;
+      cb();
+    });
+
+    runCode(mockData);
+
+    assertApi('claimRequest').wasCalled();
+    assertApi('setResponseStatus').wasCalledWith(200);
+    assertApi('setResponseBody').wasCalledWith('ok');
+    assertApi('getRequestHeader').wasCalledWith('user-agent');
+    assertApi('getRequestHeader').wasCalledWith('host');
+    assertApi('getRequestHeader').wasCalledWith('referer');
+    assertApi('getRequestHeader').wasCalledWith('SP-Anonymous');
+    assertApi('getRequestHeader').wasCalledWith('origin');
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Origin',
+      'origin'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Credentials',
+      'true'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Headers',
+      'Content-Type, SP-Anonymous'
+    );
+    assertApi('setResponseHeader').wasCalledWith(
+      'Access-Control-Allow-Methods',
+      'POST, GET, OPTIONS'
+    );
+    assertApi('returnResponse').wasCalled();
+    const expectedCommonEvent = {
+      event_name: 'link_click',
+      client_id: 'bc2e92ec6c204a14',
+      page_hostname: 'www.snowplowanalytics.com',
+      page_location: 'http://www.snowplowanalytics.com',
+      page_path: '/',
+      page_referrer: 'referer',
       page_title: 'On Analytics',
-      page_referrer: null,
-      page_urlscheme: 'http',
-      page_urlhost: 'www.snowplowanalytics.com',
-      page_urlport: 80,
-      page_urlpath: '/product/index.html',
-      page_urlquery: 'id=GTM-DLRG',
-      page_urlfragment: '4-conclusion',
-      refr_urlscheme: null,
-      refr_urlhost: null,
-      refr_urlport: null,
-      refr_urlpath: null,
-      refr_urlquery: null,
-      refr_urlfragment: null,
-      refr_medium: null,
-      refr_source: null,
-      refr_term: null,
-      mkt_medium: null,
-      mkt_source: null,
-      mkt_term: null,
-      mkt_content: null,
-      mkt_campaign: null,
-      contexts_org_schema_web_page_1: [
+      user_id: 'jon.doe@email.com',
+      origin: 'origin',
+      host: 'host',
+      'x-sp-app_id': 'angry-birds',
+      'x-sp-platform': 'web',
+      'x-sp-etl_tstamp': '2017-01-26T00:01:25.292Z',
+      'x-sp-collector_tstamp': '2013-11-26T00:02:05Z',
+      'x-sp-dvce_created_tstamp': '2013-11-26T00:03:57.885Z',
+      'x-sp-event': 'page_view',
+      'x-sp-event_id': 'c6ef3124-b53a-4b13-a233-0088f79dcbcb',
+      'x-sp-txn_id': 41828,
+      'x-sp-name_tracker': 'cloudfront-1',
+      'x-sp-v_tracker': 'js-2.1.0',
+      'x-sp-v_collector': 'clj-tomcat-0.1.0',
+      'x-sp-v_etl': 'serde-0.5.2',
+      'x-sp-user_fingerprint': '2161814971',
+      'x-sp-domain_sessionidx': 3,
+      'x-sp-domain_userid': 'bc2e92ec6c204a14',
+      'x-sp-user_id': 'jon.doe@email.com',
+      'x-sp-network_userid': 'ecdff4d0-9175-40ac-a8bb-325c49733607',
+      'x-sp-geo_country': 'US',
+      'x-sp-geo_region': 'TX',
+      'x-sp-geo_city': 'New York',
+      'x-sp-geo_zipcode': '94109',
+      'x-sp-geo_latitude': 37.443604,
+      'x-sp-geo_longitude': -122.4124,
+      'x-sp-geo_location': '37.443604,-122.4124',
+      'x-sp-geo_region_name': 'Florida',
+      'x-sp-ip_isp': 'FDN Communications',
+      'x-sp-ip_organization': 'Bouygues Telecom',
+      'x-sp-ip_domain': 'nuvox.net',
+      'x-sp-ip_netspeed': 'Cable/DSL',
+      'x-sp-page_urlscheme': 'http',
+      'x-sp-page_urlhost': 'www.snowplowanalytics.com',
+      'x-sp-page_urlport': 80,
+      'x-sp-page_urlpath': '/product/index.html',
+      'x-sp-page_urlquery': 'id=GTM-DLRG',
+      'x-sp-page_urlfragment': '4-conclusion',
+      'x-sp-br_features_pdf': true,
+      'x-sp-br_features_flash': false,
+      'x-sp-domain_sessionid': '2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1',
+      'x-sp-derived_tstamp': '2013-11-26T00:03:57.886Z',
+      'x-sp-event_vendor': 'com.snowplowanalytics.snowplow',
+      'x-sp-event_name': 'link_click',
+      'x-sp-event_format': 'jsonschema',
+      'x-sp-event_version': '1-0-0',
+      'x-sp-event_fingerprint': 'e3dbfa9cca0412c3d4052863cefb547f',
+      'x-sp-true_tstamp': '2013-11-26T00:03:57.886Z',
+      'x-sp-contexts_org_schema_web_page_1': [
         {
           genre: 'blog',
           inLanguage: 'en-US',
@@ -2457,7 +3155,17 @@ scenarios:
           keywords: ['snowplow', 'javascript', 'tracker', 'event'],
         },
       ],
-      contexts_org_w3_performance_timing_1: [
+      foo: {
+        bar: {
+          genre: 'blog',
+          inLanguage: 'en-US',
+          datePublished: '2014-11-06T00:00:00Z',
+          author: 'Fred Blundun',
+          breadcrumb: ['blog', 'releases'],
+          keywords: ['snowplow', 'javascript', 'tracker', 'event'],
+        },
+      },
+      'x-sp-contexts_org_w3_performance_timing_1': [
         {
           navigationStart: 1415358089861,
           unloadEventStart: 1415358090270,
@@ -2481,80 +3189,32 @@ scenarios:
           loadEventEnd: 0,
         },
       ],
-      se_category: null,
-      se_action: null,
-      se_label: null,
-      se_property: null,
-      se_value: null,
-      unstruct_event_com_snowplowanalytics_snowplow_link_click_1: {
+      x_test_perf_navigationStart: 1415358089861,
+      x_test_perf_unloadEventStart: 1415358090270,
+      x_test_perf_unloadEventEnd: 1415358090287,
+      x_test_perf_redirectStart: 0,
+      x_test_perf_redirectEnd: 0,
+      x_test_perf_fetchStart: 1415358089870,
+      x_test_perf_domainLookupStart: 1415358090102,
+      x_test_perf_domainLookupEnd: 1415358090102,
+      x_test_perf_connectStart: 1415358090103,
+      x_test_perf_connectEnd: 1415358090183,
+      x_test_perf_requestStart: 1415358090183,
+      x_test_perf_responseStart: 1415358090265,
+      x_test_perf_responseEnd: 1415358090265,
+      x_test_perf_domLoading: 1415358090270,
+      x_test_perf_domInteractive: 1415358090886,
+      x_test_perf_domContentLoadedEventStart: 1415358090968,
+      x_test_perf_domContentLoadedEventEnd: 1415358091309,
+      x_test_perf_domComplete: 0,
+      x_test_perf_loadEventStart: 0,
+      x_test_perf_loadEventEnd: 0,
+      'x-sp-self_describing_event_com_snowplowanalytics_snowplow_link_click_1': {
         targetUrl: 'http://www.example.com',
         elementClasses: ['foreground'],
         elementId: 'exampleLink',
       },
-      tr_orderid: null,
-      tr_affiliation: null,
-      tr_total: null,
-      tr_tax: null,
-      tr_shipping: null,
-      tr_city: null,
-      tr_state: null,
-      tr_country: null,
-      ti_orderid: null,
-      ti_sku: null,
-      ti_name: null,
-      ti_category: null,
-      ti_price: null,
-      ti_quantity: null,
-      pp_xoffset_min: null,
-      pp_xoffset_max: null,
-      pp_yoffset_min: null,
-      pp_yoffset_max: null,
-      useragent: null,
-      br_name: null,
-      br_family: null,
-      br_version: null,
-      br_type: null,
-      br_renderengine: null,
-      br_lang: null,
-      br_features_pdf: true,
-      br_features_flash: false,
-      br_features_java: null,
-      br_features_director: null,
-      br_features_quicktime: null,
-      br_features_realplayer: null,
-      br_features_windowsmedia: null,
-      br_features_gears: null,
-      br_features_silverlight: null,
-      br_cookies: null,
-      br_colordepth: null,
-      br_viewwidth: null,
-      br_viewheight: null,
-      os_name: null,
-      os_family: null,
-      os_manufacturer: null,
-      os_timezone: null,
-      dvce_type: null,
-      dvce_ismobile: null,
-      dvce_screenwidth: null,
-      dvce_screenheight: null,
-      doc_charset: null,
-      doc_width: null,
-      doc_height: null,
-      tr_currency: null,
-      tr_total_base: null,
-      tr_tax_base: null,
-      tr_shipping_base: null,
-      ti_currency: null,
-      ti_price_base: null,
-      base_currency: null,
-      geo_timezone: null,
-      mkt_clickid: null,
-      mkt_network: null,
-      etl_tags: null,
-      dvce_sent_tstamp: null,
-      refr_domain_userid: null,
-      refr_dvce_tstamp: null,
-      contexts_com_snowplowanalytics_snowplow_ua_parser_context_1: [
+      'x-sp-contexts_com_snowplowanalytics_snowplow_ua_parser_context_1': [
         {
           useragentFamily: 'IE',
           useragentMajor: '7',
@@ -2570,178 +3230,22 @@ scenarios:
           deviceFamily: 'Other',
         },
       ],
-      domain_sessionid: '2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1',
-      derived_tstamp: '2013-11-26T00:03:57.886Z',
-      event_vendor: 'com.snowplowanalytics.snowplow',
-      event_name: 'link_click',
-      event_format: 'jsonschema',
-      event_version: '1-0-0',
-      event_fingerprint: 'e3dbfa9cca0412c3d4052863cefb547f',
-      true_tstamp: '2013-11-26T00:03:57.886Z',
-    });
-
-    mock('getRequestPath', () => {
-      return '/com.snowplowanalytics.snowplow/enriched';
-    });
-
-    mock('getRequestMethod', () => {
-      return 'POST';
-    });
-
-    mock('getRequestBody', () => {
-      return enriched;
-    });
-
-    runCode(mockData);
-
-    assertApi('claimRequest').wasCalled();
-    assertApi('setResponseStatus').wasCalledWith(200);
-    assertApi('setResponseBody').wasCalledWith('ok');
-    assertApi('getRequestHeader').wasCalledWith('user-agent');
-    assertApi('getRequestHeader').wasCalledWith('host');
-    assertApi('getRequestHeader').wasCalledWith('referer');
-    assertApi('getRequestHeader').wasCalledWith('SP-Anonymous');
-    assertApi('getRequestHeader').wasCalledWith('origin');
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Origin',
-      'origin'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Credentials',
-      'true'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Headers',
-      'Content-Type, SP-Anonymous'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Methods',
-      'POST, GET, OPTIONS'
-    );
-    assertApi('returnResponse').wasCalled();
+      ga_session_id: '2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1',
+      ga_session_number: '3',
+      'x-ga-mp2-seg': '1',
+      'x-ga-protocol_version': '2',
+      ip_override: '92.231.54.234',
+      new_client_id: 'GA1',
+      something_new: 'test_value',
+    };
+    assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
     assertApi('runContainer').wasCalledWith(
-      {
-        event_name: 'link_click',
-        client_id: 'bc2e92ec6c204a14',
-        page_hostname: 'www.snowplowanalytics.com',
-        page_location: 'http://www.snowplowanalytics.com',
-        page_path: '/',
-        page_referrer: 'referer',
-        page_title: 'On Analytics',
-        user_id: 'jon.doe@email.com',
-        origin: 'origin',
-        host: 'host',
-        'x-sp-app_id': 'angry-birds',
-        'x-sp-platform': 'web',
-        'x-sp-etl_tstamp': '2017-01-26T00:01:25.292Z',
-        'x-sp-collector_tstamp': '2013-11-26T00:02:05Z',
-        'x-sp-dvce_created_tstamp': '2013-11-26T00:03:57.885Z',
-        'x-sp-event': 'page_view',
-        'x-sp-event_id': 'c6ef3124-b53a-4b13-a233-0088f79dcbcb',
-        'x-sp-txn_id': 41828,
-        'x-sp-name_tracker': 'cloudfront-1',
-        'x-sp-v_tracker': 'js-2.1.0',
-        'x-sp-v_collector': 'clj-tomcat-0.1.0',
-        'x-sp-v_etl': 'serde-0.5.2',
-        'x-sp-user_fingerprint': '2161814971',
-        'x-sp-domain_sessionidx': 3,
-        'x-sp-domain_userid': 'bc2e92ec6c204a14',
-        'x-sp-user_id': 'jon.doe@email.com',
-        'x-sp-network_userid': 'ecdff4d0-9175-40ac-a8bb-325c49733607',
-        'x-sp-geo_country': 'US',
-        'x-sp-geo_region': 'TX',
-        'x-sp-geo_city': 'New York',
-        'x-sp-geo_zipcode': '94109',
-        'x-sp-geo_latitude': 37.443604,
-        'x-sp-geo_longitude': -122.4124,
-        'x-sp-geo_location': '37.443604,-122.4124',
-        'x-sp-geo_region_name': 'Florida',
-        'x-sp-ip_isp': 'FDN Communications',
-        'x-sp-ip_organization': 'Bouygues Telecom',
-        'x-sp-ip_domain': 'nuvox.net',
-        'x-sp-ip_netspeed': 'Cable/DSL',
-        'x-sp-page_urlscheme': 'http',
-        'x-sp-page_urlhost': 'www.snowplowanalytics.com',
-        'x-sp-page_urlport': 80,
-        'x-sp-page_urlpath': '/product/index.html',
-        'x-sp-page_urlquery': 'id=GTM-DLRG',
-        'x-sp-page_urlfragment': '4-conclusion',
-        'x-sp-br_features_pdf': true,
-        'x-sp-br_features_flash': false,
-        'x-sp-domain_sessionid': '2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1',
-        'x-sp-derived_tstamp': '2013-11-26T00:03:57.886Z',
-        'x-sp-event_vendor': 'com.snowplowanalytics.snowplow',
-        'x-sp-event_name': 'link_click',
-        'x-sp-event_format': 'jsonschema',
-        'x-sp-event_version': '1-0-0',
-        'x-sp-event_fingerprint': 'e3dbfa9cca0412c3d4052863cefb547f',
-        'x-sp-true_tstamp': '2013-11-26T00:03:57.886Z',
-        'x-sp-contexts_org_schema_web_page_1': [
-          {
-            genre: 'blog',
-            inLanguage: 'en-US',
-            datePublished: '2014-11-06T00:00:00Z',
-            author: 'Fred Blundun',
-            breadcrumb: ['blog', 'releases'],
-            keywords: ['snowplow', 'javascript', 'tracker', 'event'],
-          },
-        ],
-        'x-sp-contexts_org_w3_performance_timing_1': [
-          {
-            navigationStart: 1415358089861,
-            unloadEventStart: 1415358090270,
-            unloadEventEnd: 1415358090287,
-            redirectStart: 0,
-            redirectEnd: 0,
-            fetchStart: 1415358089870,
-            domainLookupStart: 1415358090102,
-            domainLookupEnd: 1415358090102,
-            connectStart: 1415358090103,
-            connectEnd: 1415358090183,
-            requestStart: 1415358090183,
-            responseStart: 1415358090265,
-            responseEnd: 1415358090265,
-            domLoading: 1415358090270,
-            domInteractive: 1415358090886,
-            domContentLoadedEventStart: 1415358090968,
-            domContentLoadedEventEnd: 1415358091309,
-            domComplete: 0,
-            loadEventStart: 0,
-            loadEventEnd: 0,
-          },
-        ],
-        'x-sp-self_describing_event_com_snowplowanalytics_snowplow_link_click_1': {
-          targetUrl: 'http://www.example.com',
-          elementClasses: ['foreground'],
-          elementId: 'exampleLink',
-        },
-        'x-sp-contexts_com_snowplowanalytics_snowplow_ua_parser_context_1': [
-          {
-            useragentFamily: 'IE',
-            useragentMajor: '7',
-            useragentMinor: '0',
-            useragentPatch: null,
-            useragentVersion: 'IE 7.0',
-            osFamily: 'Windows XP',
-            osMajor: null,
-            osMinor: null,
-            osPatch: null,
-            osPatchMinor: null,
-            osVersion: 'Windows XP',
-            deviceFamily: 'Other',
-          },
-        ],
-        ga_session_id: '2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1',
-        ga_session_number: '3',
-        'x-ga-mp2-seg': '1',
-        'x-ga-protocol_version': '2',
-        ip_override: '92.231.54.234',
-      },
-      runContainerCb
+      expectedCommonEvent,
+      runContainerCallback
     );
 - name: Container run with advanced common event settings
   code: |
-    const testMockData = {
+    const mockData = {
       ipInclude: true,
       populateGaProps: true,
 
@@ -2775,220 +3279,473 @@ scenarios:
             'x-sp-contexts_com_google_tag-manager_server-side_user_data_1.0.email_address',
         },
       ],
+      mergeEntities: false,
     };
+    const testEvent = mediaEventTp2;
 
-    const selfDescTp2 = json.stringify({
-      schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
-      data: [
-        {
-          e: 'ue',
-          eid: '2fa64700-fce2-4e81-afdf-1d0660d34025',
-          tv: 'js-3.5.0',
-          tna: 'spTest',
-          aid: 'media-test',
-          p: 'web',
-          cookie: '1',
-          cs: 'UTF-8',
-          lang: 'en-US',
-          res: '1920x1080',
-          cd: '24',
-          tz: 'Europe/Rome',
-          dtm: '1665409698511',
-          vp: '779x975',
-          ds: '764x1211',
-          vid: '2',
-          sid: '339013c3-ec6b-4935-b46e-487064bb1ce0',
-          duid: 'ee7b64e7-bee2-4b16-aaf5-5057e6bb4af3',
-          uid: 'tester',
-          url: 'http://localhost:8080/',
-          ue_pr:
-            '{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.snowplowanalytics.snowplow/media_player_event/jsonschema/1-0-0","data":{"type":"play"}}}',
-          co: '{"schema":"iglu:com.snowplowanalytics.snowplow/contexts/jsonschema/1-0-0","data":[{"schema":"iglu:com.youtube/youtube/jsonschema/1-0-0","data":{"autoPlay":false,"avaliablePlaybackRates":[0.25,0.5,0.75,1,1.25,1.5,1.75,2],"buffering":false,"controls":true,"cued":false,"loaded":6,"playbackQuality":"medium","playerId":"youtube-song","unstarted":false,"url":"https://www.youtube.com/watch?v=XCQK6LmhYqc","avaliableQualityLevels":["hd1080","hd720","large","medium","small","tiny","auto"]}},{"schema":"iglu:com.snowplowanalytics.snowplow/media_player/jsonschema/1-0-0","data":{"currentTime":0.04796292752075195,"duration":190.301,"ended":false,"loop":false,"muted":false,"paused":false,"playbackRate":1,"volume":100}},{"schema":"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0","data":{"id":"82f93a00-2344-4367-9a2d-a2dcf038d5e1"}},{"schema":"iglu:com.google.tag-manager.server-side/user_data/jsonschema/1-0-0","data":{"email_address":"foo@test.io"}},{"schema":"iglu:com.snowplowanalytics.snowplow/mobile_context/jsonschema/1-0-2","data":{"osType":"myOsType","osVersion":"myOsVersion","deviceManufacturer":"myDevMan","deviceModel":"myDevModel"}},{"schema":"iglu:com.snowplowanalytics.snowplow/client_session/jsonschema/1-0-2","data":{"userId":"ee7b64e7-bee2-4b16-aaf5-5057e6bb4af3","sessionId":"339013c3-ec6b-4935-b46e-487064bb1ce0","eventIndex":2,"sessionIndex":2,"previousSessionId":"66609ccf-c661-4f10-97ce-af38220f5eb5","storageMechanism":"COOKIE_1","firstEventId":"6bf091b9-db2f-4753-a844-51d72f6d8210","firstEventTimestamp":"2022-10-10T13:48:18.208Z"}}]}',
-          stm: '1665409698512',
-        },
-      ],
-    });
-    const selfDescEvent = json.parse(selfDescTp2).data[0];
-
-    mock('getRequestPath', () => {
-      return '/com.snowplowanalytics.snowplow/tp2';
+    // mocks
+    mock('getRequestPath', '/com.snowplowanalytics.snowplow/tp2');
+    mock('getRequestMethod', 'POST');
+    mock('getRequestBody', json.stringify(testEvent));
+    let runContainerCallback;
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      runContainerCallback = cb;
+      cb();
     });
 
-    mock('getRequestMethod', () => {
-      return 'POST';
-    });
-
-    mock('getRequestBody', () => {
-      return selfDescTp2;
-    });
-
-    runCode(testMockData);
+    runCode(mockData);
 
     assertApi('claimRequest').wasCalled();
     assertApi('returnResponse').wasCalled();
-
+    const selfDescEvent = mediaEventTp2.data[0];
     const expectedCommonEvent = {
       event_name: 'media_player_event',
       language: 'en-US',
-      page_encoding: 'UTF-8',
+      page_encoding: 'windows-1252',
       page_hostname: 'localhost',
-      page_location: 'http://localhost:8080/',
+      page_location: 'http://localhost:8000/',
       page_path: '/',
       page_referrer: 'referer',
       screen_resolution: '1920x1080',
-      viewport_size: '779x975',
+      viewport_size: '744x971',
       user_agent: 'user-agent',
       origin: 'origin',
       host: 'host',
+      ip_override: '1.2.3.4',
       'x-sp-app_id': 'media-test',
       'x-sp-platform': 'web',
-      'x-sp-dvce_created_tstamp': '1665409698511',
-      'x-sp-event_id': '2fa64700-fce2-4e81-afdf-1d0660d34025',
+      'x-sp-dvce_created_tstamp': '1697609091769',
+      'x-sp-event_id': '011c85b9-0ee1-4f01-a9ca-7bd11db0c811',
       'x-sp-name_tracker': 'spTest',
-      'x-sp-v_tracker': 'js-3.5.0',
-      'x-sp-domain_sessionid': '339013c3-ec6b-4935-b46e-487064bb1ce0',
-      'x-sp-domain_sessionidx': 2,
-      'x-sp-domain_userid': 'ee7b64e7-bee2-4b16-aaf5-5057e6bb4af3',
-      'x-sp-user_id': 'tester',
+      'x-sp-v_tracker': 'js-3.16.0',
+      'x-sp-domain_sessionid': '6ce287c3-e58d-4501-9586-1062d9b2d80c',
+      'x-sp-domain_sessionidx': 1,
+      'x-sp-domain_userid': 'fd97960a-bcb9-4530-8446-e370e1952e5e',
+      'x-sp-user_id': 'media_tester',
       'x-sp-br_cookies': '1',
       'x-sp-br_colordepth': '24',
-      'x-sp-br_viewwidth': 779,
-      'x-sp-br_viewheight': 975,
+      'x-sp-br_viewwidth': 744,
+      'x-sp-br_viewheight': 971,
       'x-sp-dvce_screenwidth': 1920,
       'x-sp-dvce_screenheight': 1080,
-      'x-sp-doc_charset': 'UTF-8',
-      'x-sp-doc_width': 764,
+      'x-sp-doc_charset': 'windows-1252',
+      'x-sp-doc_width': 729,
       'x-sp-doc_height': 1211,
-      'x-sp-dvce_sent_tstamp': '1665409698512',
+      'x-sp-dvce_sent_tstamp': '1697609091773',
+      'x-sp-tp2': selfDescEvent,
       'x-sp-self_describing_event_com_snowplowanalytics_snowplow_media_player_event_1':
-        { type: 'play' },
-      'x-sp-contexts_com_youtube_youtube_1': [
+        { type: 'pause' },
+      'x-sp-self_describing_event': json.parse(selfDescEvent.ue_pr).data,
+      'x-sp-contexts': json.parse(selfDescEvent.co).data,
+      'x-sp-contexts_org_whatwg_media_element_1': [
         {
+          htmlId: 'bunny-mp4',
+          mediaType: 'VIDEO',
           autoPlay: false,
-          avaliablePlaybackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
-          buffering: false,
+          buffered: [{ start: 0, end: 13.424 }],
           controls: true,
-          cued: false,
-          loaded: 6,
-          playbackQuality: 'medium',
-          playerId: 'youtube-song',
-          unstarted: false,
-          url: 'https://www.youtube.com/watch?v=XCQK6LmhYqc',
-          avaliableQualityLevels: [
-            'hd1080',
-            'hd720',
-            'large',
-            'medium',
-            'small',
-            'tiny',
-            'auto',
-          ],
+          currentSrc:
+            'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4',
+          defaultMuted: false,
+          defaultPlaybackRate: 1,
+          error: null,
+          networkState: 'NETWORK_LOADING',
+          preload: 'metadata',
+          readyState: 'HAVE_ENOUGH_DATA',
+          seekable: [{ start: 0, end: 596.48 }],
+          seeking: false,
+          src: 'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4',
+          textTracks: [],
+          fileExtension: 'mp4',
+          fullscreen: false,
+          pictureInPicture: false,
         },
       ],
       'x-sp-contexts_com_snowplowanalytics_snowplow_media_player_1': [
         {
-          currentTime: 0.04796292752075195,
-          duration: 190.301,
+          currentTime: 5.801593,
+          duration: 596.48,
           ended: false,
           loop: false,
           muted: false,
-          paused: false,
+          paused: true,
           playbackRate: 1,
           volume: 100,
         },
       ],
+      'x-sp-contexts_org_whatwg_video_element_1': [
+        { poster: '', videoHeight: 360, videoWidth: 640 },
+      ],
       'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1': [
-        { id: '82f93a00-2344-4367-9a2d-a2dcf038d5e1' },
+        { id: '586b753d-c961-4852-a164-f641c9a4404f' },
       ],
       'x-sp-contexts_com_google_tag-manager_server-side_user_data_1': [
-        { email_address: 'foo@test.io' },
+        {
+          email_address: 'foo@example.com',
+          phone_number: '+15551234567',
+          address: {
+            first_name: 'Jane',
+            last_name: 'Doe',
+            street: '123 Fake St',
+            city: 'San Francisco',
+            region: 'CA',
+            postal_code: '94016',
+            country: 'US',
+          },
+        },
       ],
       'x-sp-contexts_com_snowplowanalytics_snowplow_mobile_context_1': [
         {
-          osType: 'myOsType',
-          osVersion: 'myOsVersion',
-          deviceManufacturer: 'myDevMan',
-          deviceModel: 'myDevModel',
+          osType: 'testOsType',
+          osVersion: 'testOsVersion',
+          deviceManufacturer: 'testDevMan',
+          deviceModel: 'testDevModel',
         },
       ],
       'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1': [
         {
-          userId: 'ee7b64e7-bee2-4b16-aaf5-5057e6bb4af3',
-          sessionId: '339013c3-ec6b-4935-b46e-487064bb1ce0',
-          eventIndex: 2,
-          sessionIndex: 2,
-          previousSessionId: '66609ccf-c661-4f10-97ce-af38220f5eb5',
+          userId: 'fd97960a-bcb9-4530-8446-e370e1952e5e',
+          sessionId: '6ce287c3-e58d-4501-9586-1062d9b2d80c',
+          eventIndex: 4,
+          sessionIndex: 1,
+          previousSessionId: null,
           storageMechanism: 'COOKIE_1',
-          firstEventId: '6bf091b9-db2f-4753-a844-51d72f6d8210',
-          firstEventTimestamp: '2022-10-10T13:48:18.208Z',
+          firstEventId: 'f8525402-1483-4fc4-8fc7-3eea2559127e',
+          firstEventTimestamp: '2023-10-18T06:04:39.898Z',
         },
       ],
-      'x-sp-tp2': selfDescEvent,
-      'x-sp-contexts': json.parse(selfDescEvent.co).data,
-      'x-sp-self_describing_event': json.parse(selfDescEvent.ue_pr).data,
-      client_id: '6bf091b9-db2f-4753-a844-51d72f6d8210',
-      user_id: 'foo@test.io',
-      user_data: { email_address: 'foo@test.io' },
-      ga_session_id: '339013c3-ec6b-4935-b46e-487064bb1ce0',
-      ga_session_number: '2',
+      user_data: {
+        email_address: 'foo@example.com',
+        phone_number: '+15551234567',
+        address: {
+          first_name: 'Jane',
+          last_name: 'Doe',
+          street: '123 Fake St',
+          city: 'San Francisco',
+          region: 'CA',
+          postal_code: '94016',
+          country: 'US',
+        },
+      },
+      ga_session_id: '6ce287c3-e58d-4501-9586-1062d9b2d80c',
+      ga_session_number: '1',
       'x-ga-mp2-seg': '1',
       'x-ga-protocol_version': '2',
-      'x-ga-page_id': '82f93a00-2344-4367-9a2d-a2dcf038d5e1',
-      ip_override: '1.2.3.4',
+      'x-ga-page_id': '586b753d-c961-4852-a164-f641c9a4404f',
+      client_id: 'f8525402-1483-4fc4-8fc7-3eea2559127e',
+      user_id: 'foo@example.com',
     };
-
     assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
-    assertApi('runContainer').wasCalledWith(expectedCommonEvent, runContainerCb);
+    assertApi('runContainer').wasCalledWith(
+      expectedCommonEvent,
+      runContainerCallback
+    );
 setup: |-
   const json = require('JSON');
   const log = require('logToConsole');
-
-  const mockData = {
-    ipInclude: true,
-    populateGaProps: true,
-    serveSpJs: true,
-    customSpJsName: 'example.js',
-    customPostPath: 'custom/path',
-    claimGetRequests: true,
-    includeOriginalTp2Event: true,
-    includeOriginalSelfDescribingEvent: false,
-    includeOriginalContextsArray: false,
-    defaultUserId: true,
-    defaultClientId: true,
-  };
 
   mock('getRequestHeader', (header) => {
     if (header === 'SP-Anonymous') {
       return undefined;
     }
-
     return header;
   });
-
-  mock('getRemoteAddress', () => {
-    return '1.2.3.4';
-  });
-
-  let runContainerCb;
-  let resultingCommonEvent;
-  mock('runContainer', (e, cb) => {
-    log('e', e);
-    resultingCommonEvent = e;
-    runContainerCb = cb;
-    cb();
-  });
-
+  mock('getRemoteAddress', '1.2.3.4');
   mock('getCookieValues', (c) => {
     return [c];
   });
-
   let httpGetCallback;
   mock('sendHttpGet', (url, cb, opts) => {
     httpGetCallback = cb;
     cb(200, { 'Content-Type': 'application/javascript' }, 'body');
   });
-
   mock('claimRequest', function () {});
+
+  const page_view_tp2 = {
+    schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
+    data: [
+      {
+        e: 'pv',
+        url: 'https://snowplowanalytics.com/',
+        page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
+        tv: 'js-2.18.1',
+        tna: 'sp',
+        aid: 'website',
+        p: 'web',
+        tz: 'Europe/London',
+        lang: 'en-GB',
+        cs: 'UTF-8',
+        res: '1920x1080',
+        cd: '24',
+        cookie: '1',
+        eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
+        dtm: '1628586512246',
+        cx: 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsImRhdGEiOnsiaWQiOiJhODZjNDJlNS1iODMxLTQ1YzgtYjcwNi1lMjE0YzI2YjRiM2QifX0seyJzY2hlbWEiOiJpZ2x1Om9yZy53My9QZXJmb3JtYW5jZVRpbWluZy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6eyJuYXZpZ2F0aW9uU3RhcnQiOjE2Mjg1ODY1MDg2MTAsInVubG9hZEV2ZW50U3RhcnQiOjAsInVubG9hZEV2ZW50RW5kIjowLCJyZWRpcmVjdFN0YXJ0IjowLCJyZWRpcmVjdEVuZCI6MCwiZmV0Y2hTdGFydCI6MTYyODU4NjUwODYxMCwiZG9tYWluTG9va3VwU3RhcnQiOjE2Mjg1ODY1MDg2MzcsImRvbWFpbkxvb2t1cEVuZCI6MTYyODU4NjUwODY5MSwiY29ubmVjdFN0YXJ0IjoxNjI4NTg2NTA4NjkxLCJjb25uZWN0RW5kIjoxNjI4NTg2NTA4NzYzLCJzZWN1cmVDb25uZWN0aW9uU3RhcnQiOjE2Mjg1ODY1MDg3MjEsInJlcXVlc3RTdGFydCI6MTYyODU4NjUwODc2MywicmVzcG9uc2VTdGFydCI6MTYyODU4NjUwODc5NywicmVzcG9uc2VFbmQiOjE2Mjg1ODY1MDg4MjEsImRvbUxvYWRpbmciOjE2Mjg1ODY1MDkwNzYsImRvbUludGVyYWN0aXZlIjoxNjI4NTg2NTA5MzgxLCJkb21Db250ZW50TG9hZGVkRXZlbnRTdGFydCI6MTYyODU4NjUwOTQwOCwiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjoxNjI4NTg2NTA5NDE3LCJkb21Db21wbGV0ZSI6MTYyODU4NjUxMDMzMiwibG9hZEV2ZW50U3RhcnQiOjE2Mjg1ODY1MTAzMzIsImxvYWRFdmVudEVuZCI6MTYyODU4NjUxMDMzNH19XX0',
+        vp: '745x1302',
+        ds: '730x12393',
+        vid: '1',
+        sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
+        duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
+        stm: '1628586512248',
+      },
+    ],
+  };
+
+  const mediaEventTp2 = {
+    schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
+    data: [
+      {
+        e: 'ue',
+        eid: '011c85b9-0ee1-4f01-a9ca-7bd11db0c811',
+        tv: 'js-3.16.0',
+        tna: 'spTest',
+        aid: 'media-test',
+        p: 'web',
+        cookie: '1',
+        cs: 'windows-1252',
+        lang: 'en-US',
+        res: '1920x1080',
+        cd: '24',
+        tz: 'Europe/Athens',
+        dtm: '1697609091769',
+        vp: '744x971',
+        ds: '729x1211',
+        vid: '1',
+        sid: '6ce287c3-e58d-4501-9586-1062d9b2d80c',
+        duid: 'fd97960a-bcb9-4530-8446-e370e1952e5e',
+        uid: 'media_tester',
+        url: 'http://localhost:8000/',
+        ue_pr:
+          '{"schema":"iglu:com.snowplowanalytics.snowplow/unstruct_event/jsonschema/1-0-0","data":{"schema":"iglu:com.snowplowanalytics.snowplow/media_player_event/jsonschema/1-0-0","data":{"type":"pause"}}}',
+        co: '{"schema":"iglu:com.snowplowanalytics.snowplow/contexts/jsonschema/1-0-0","data":[{"schema":"iglu:org.whatwg/media_element/jsonschema/1-0-0","data":{"htmlId":"bunny-mp4","mediaType":"VIDEO","autoPlay":false,"buffered":[{"start":0,"end":13.424}],"controls":true,"currentSrc":"https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4","defaultMuted":false,"defaultPlaybackRate":1,"error":null,"networkState":"NETWORK_LOADING","preload":"metadata","readyState":"HAVE_ENOUGH_DATA","seekable":[{"start":0,"end":596.48}],"seeking":false,"src":"https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4","textTracks":[],"fileExtension":"mp4","fullscreen":false,"pictureInPicture":false}},{"schema":"iglu:com.snowplowanalytics.snowplow/media_player/jsonschema/1-0-0","data":{"currentTime":5.801593,"duration":596.48,"ended":false,"loop":false,"muted":false,"paused":true,"playbackRate":1,"volume":100}},{"schema":"iglu:org.whatwg/video_element/jsonschema/1-0-0","data":{"poster":"","videoHeight":360,"videoWidth":640}},{"schema":"iglu:com.snowplowanalytics.snowplow/web_page/jsonschema/1-0-0","data":{"id":"586b753d-c961-4852-a164-f641c9a4404f"}},{"schema":"iglu:com.google.tag-manager.server-side/user_data/jsonschema/1-0-0","data":{"email_address":"foo@example.com","phone_number":"+15551234567","address":{"first_name":"Jane","last_name":"Doe","street":"123 Fake St","city":"San Francisco","region":"CA","postal_code":"94016","country":"US"}}},{"schema":"iglu:com.snowplowanalytics.snowplow/mobile_context/jsonschema/1-0-2","data":{"osType":"testOsType","osVersion":"testOsVersion","deviceManufacturer":"testDevMan","deviceModel":"testDevModel"}},{"schema":"iglu:com.snowplowanalytics.snowplow/client_session/jsonschema/1-0-2","data":{"userId":"fd97960a-bcb9-4530-8446-e370e1952e5e","sessionId":"6ce287c3-e58d-4501-9586-1062d9b2d80c","eventIndex":4,"sessionIndex":1,"previousSessionId":null,"storageMechanism":"COOKIE_1","firstEventId":"f8525402-1483-4fc4-8fc7-3eea2559127e","firstEventTimestamp":"2023-10-18T06:04:39.898Z"}}]}',
+        stm: '1697609091773',
+      },
+    ],
+  };
+
+  const page_view_mobile = {
+    schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
+    data: [
+      {
+        e: 'pv',
+        url: 'https://snowplowanalytics.com/',
+        page: 'Collect, manage and operationalize behavioral data at scale | Snowplow',
+        tv: 'ios-2.0.0',
+        tna: 'sp',
+        aid: 'my-app',
+        p: 'mob',
+        tz: 'Europe/London',
+        lang: 'en-GB',
+        cs: 'UTF-8',
+        res: '1920x1080',
+        cd: '24',
+        cookie: '1',
+        eid: '8676de79-0eba-4435-ad95-8a41a8a0129c',
+        dtm: '1628586512246',
+        cx: 'ewogICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvY29udGV4dHMvanNvbnNjaGVtYS8xLTAtMCIsCiAgImRhdGEiOiBbCiAgICB7CiAgICAgICJzY2hlbWEiOiAiaWdsdTpjb20uc25vd3Bsb3dhbmFseXRpY3Muc25vd3Bsb3cvd2ViX3BhZ2UvanNvbnNjaGVtYS8xLTAtMCIsCiAgICAgICJkYXRhIjogeyAiaWQiOiAiYTg2YzQyZTUtYjgzMS00NWM4LWI3MDYtZTIxNGMyNmI0YjNkIiB9CiAgICB9LAogICAgewogICAgICAic2NoZW1hIjogImlnbHU6b3JnLnczL1BlcmZvcm1hbmNlVGltaW5nL2pzb25zY2hlbWEvMS0wLTAiLAogICAgICAiZGF0YSI6IHsKICAgICAgICAibmF2aWdhdGlvblN0YXJ0IjogMTYyODU4NjUwODYxMCwKICAgICAgICAidW5sb2FkRXZlbnRTdGFydCI6IDAsCiAgICAgICAgInVubG9hZEV2ZW50RW5kIjogMCwKICAgICAgICAicmVkaXJlY3RTdGFydCI6IDAsCiAgICAgICAgInJlZGlyZWN0RW5kIjogMCwKICAgICAgICAiZmV0Y2hTdGFydCI6IDE2Mjg1ODY1MDg2MTAsCiAgICAgICAgImRvbWFpbkxvb2t1cFN0YXJ0IjogMTYyODU4NjUwODYzNywKICAgICAgICAiZG9tYWluTG9va3VwRW5kIjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdFN0YXJ0IjogMTYyODU4NjUwODY5MSwKICAgICAgICAiY29ubmVjdEVuZCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInNlY3VyZUNvbm5lY3Rpb25TdGFydCI6IDE2Mjg1ODY1MDg3MjEsCiAgICAgICAgInJlcXVlc3RTdGFydCI6IDE2Mjg1ODY1MDg3NjMsCiAgICAgICAgInJlc3BvbnNlU3RhcnQiOiAxNjI4NTg2NTA4Nzk3LAogICAgICAgICJyZXNwb25zZUVuZCI6IDE2Mjg1ODY1MDg4MjEsCiAgICAgICAgImRvbUxvYWRpbmciOiAxNjI4NTg2NTA5MDc2LAogICAgICAgICJkb21JbnRlcmFjdGl2ZSI6IDE2Mjg1ODY1MDkzODEsCiAgICAgICAgImRvbUNvbnRlbnRMb2FkZWRFdmVudFN0YXJ0IjogMTYyODU4NjUwOTQwOCwKICAgICAgICAiZG9tQ29udGVudExvYWRlZEV2ZW50RW5kIjogMTYyODU4NjUwOTQxNywKICAgICAgICAiZG9tQ29tcGxldGUiOiAxNjI4NTg2NTEwMzMyLAogICAgICAgICJsb2FkRXZlbnRTdGFydCI6IDE2Mjg1ODY1MTAzMzIsCiAgICAgICAgImxvYWRFdmVudEVuZCI6IDE2Mjg1ODY1MTAzMzQKICAgICAgfQogICAgfSwKICAgIHsKICAgICAgInNjaGVtYSI6ICJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jbGllbnRfc2Vzc2lvbi9qc29uc2NoZW1hLzEtMC0xIiwKICAgICAgImRhdGEiOiB7IAogICAgICAgICJ1c2VySWQiOiAiYTQ5NDIwMzUtZGU0MS00YmJkLWI0NjYtOWMxZWY3ZjdmYjY1IiwKICAgICAgICAic2Vzc2lvbklkIjogImM1OTMzZDU4LWI4YzItNDlkZC1iYWQ1LTYxNTRkNzFhN2I5ZCIsCiAgICAgICAgInNlc3Npb25JbmRleCI6ICI1IgogICAgICB9CiAgICB9CiAgXQp9Cg',
+        vp: '745x1302',
+        ds: '730x12393',
+        vid: '1',
+        sid: 'e7580b71-227b-4868-9ea9-322a263ce885',
+        duid: 'd54a1904-7798-401a-be0b-1a83bea73634',
+        stm: '1628586512248',
+        uid: 'snow123',
+      },
+    ],
+  };
+
+  const enrichedLinkClick = {
+    geo_location: '37.443604,-122.4124',
+    app_id: 'angry-birds',
+    platform: 'web',
+    etl_tstamp: '2017-01-26T00:01:25.292Z',
+    collector_tstamp: '2013-11-26T00:02:05Z',
+    dvce_created_tstamp: '2013-11-26T00:03:57.885Z',
+    event: 'page_view',
+    event_id: 'c6ef3124-b53a-4b13-a233-0088f79dcbcb',
+    txn_id: 41828,
+    name_tracker: 'cloudfront-1',
+    v_tracker: 'js-2.1.0',
+    v_collector: 'clj-tomcat-0.1.0',
+    v_etl: 'serde-0.5.2',
+    user_id: 'jon.doe@email.com',
+    user_ipaddress: '92.231.54.234',
+    user_fingerprint: '2161814971',
+    domain_userid: 'bc2e92ec6c204a14',
+    domain_sessionidx: 3,
+    network_userid: 'ecdff4d0-9175-40ac-a8bb-325c49733607',
+    geo_country: 'US',
+    geo_region: 'TX',
+    geo_city: 'New York',
+    geo_zipcode: '94109',
+    geo_latitude: 37.443604,
+    geo_longitude: -122.4124,
+    geo_region_name: 'Florida',
+    ip_isp: 'FDN Communications',
+    ip_organization: 'Bouygues Telecom',
+    ip_domain: 'nuvox.net',
+    ip_netspeed: 'Cable/DSL',
+    page_url: 'http://www.snowplowanalytics.com',
+    page_title: 'On Analytics',
+    page_referrer: null,
+    page_urlscheme: 'http',
+    page_urlhost: 'www.snowplowanalytics.com',
+    page_urlport: 80,
+    page_urlpath: '/product/index.html',
+    page_urlquery: 'id=GTM-DLRG',
+    page_urlfragment: '4-conclusion',
+    refr_urlscheme: null,
+    refr_urlhost: null,
+    refr_urlport: null,
+    refr_urlpath: null,
+    refr_urlquery: null,
+    refr_urlfragment: null,
+    refr_medium: null,
+    refr_source: null,
+    refr_term: null,
+    mkt_medium: null,
+    mkt_source: null,
+    mkt_term: null,
+    mkt_content: null,
+    mkt_campaign: null,
+    contexts_org_ietf_http_cookie_1: [
+      { name: '_ga', value: 'GA1.2.3' },
+      { name: '_ga_FOO', value: 'GS1.2.3' },
+    ],
+    contexts_org_schema_web_page_1: [
+      {
+        genre: 'blog',
+        inLanguage: 'en-US',
+        datePublished: '2014-11-06T00:00:00Z',
+        author: 'Fred Blundun',
+        breadcrumb: ['blog', 'releases'],
+        keywords: ['snowplow', 'javascript', 'tracker', 'event'],
+      },
+    ],
+    contexts_org_w3_performance_timing_1: [
+      {
+        navigationStart: 1415358089861,
+        unloadEventStart: 1415358090270,
+        unloadEventEnd: 1415358090287,
+        redirectStart: 0,
+        redirectEnd: 0,
+        fetchStart: 1415358089870,
+        domainLookupStart: 1415358090102,
+        domainLookupEnd: 1415358090102,
+        connectStart: 1415358090103,
+        connectEnd: 1415358090183,
+        requestStart: 1415358090183,
+        responseStart: 1415358090265,
+        responseEnd: 1415358090265,
+        domLoading: 1415358090270,
+        domInteractive: 1415358090886,
+        domContentLoadedEventStart: 1415358090968,
+        domContentLoadedEventEnd: 1415358091309,
+        domComplete: 0,
+        loadEventStart: 0,
+        loadEventEnd: 0,
+      },
+    ],
+    se_category: null,
+    se_action: null,
+    se_label: null,
+    se_property: null,
+    se_value: null,
+    unstruct_event_com_snowplowanalytics_snowplow_link_click_1: {
+      targetUrl: 'http://www.example.com',
+      elementClasses: ['foreground'],
+      elementId: 'exampleLink',
+    },
+    tr_orderid: null,
+    tr_affiliation: null,
+    tr_total: null,
+    tr_tax: null,
+    tr_shipping: null,
+    tr_city: null,
+    tr_state: null,
+    tr_country: null,
+    ti_orderid: null,
+    ti_sku: null,
+    ti_name: null,
+    ti_category: null,
+    ti_price: null,
+    ti_quantity: null,
+    pp_xoffset_min: null,
+    pp_xoffset_max: null,
+    pp_yoffset_min: null,
+    pp_yoffset_max: null,
+    useragent: null,
+    br_name: null,
+    br_family: null,
+    br_version: null,
+    br_type: null,
+    br_renderengine: null,
+    br_lang: null,
+    br_features_pdf: true,
+    br_features_flash: false,
+    br_features_java: null,
+    br_features_director: null,
+    br_features_quicktime: null,
+    br_features_realplayer: null,
+    br_features_windowsmedia: null,
+    br_features_gears: null,
+    br_features_silverlight: null,
+    br_cookies: null,
+    br_colordepth: null,
+    br_viewwidth: null,
+    br_viewheight: null,
+    os_name: null,
+    os_family: null,
+    os_manufacturer: null,
+    os_timezone: null,
+    dvce_type: null,
+    dvce_ismobile: null,
+    dvce_screenwidth: null,
+    dvce_screenheight: null,
+    doc_charset: null,
+    doc_width: null,
+    doc_height: null,
+    tr_currency: null,
+    tr_total_base: null,
+    tr_tax_base: null,
+    tr_shipping_base: null,
+    ti_currency: null,
+    ti_price_base: null,
+    base_currency: null,
+    geo_timezone: null,
+    mkt_clickid: null,
+    mkt_network: null,
+    etl_tags: null,
+    dvce_sent_tstamp: null,
+    refr_domain_userid: null,
+    refr_dvce_tstamp: null,
+    contexts_com_snowplowanalytics_snowplow_ua_parser_context_1: [
+      {
+        useragentFamily: 'IE',
+        useragentMajor: '7',
+        useragentMinor: '0',
+        useragentPatch: null,
+        useragentVersion: 'IE 7.0',
+        osFamily: 'Windows XP',
+        osMajor: null,
+        osMinor: null,
+        osPatch: null,
+        osPatchMinor: null,
+        osVersion: 'Windows XP',
+        deviceFamily: 'Other',
+      },
+    ],
+    domain_sessionid: '2b15e5c8-d3b1-11e4-b9d6-1681e6b88ec1',
+    derived_tstamp: '2013-11-26T00:03:57.886Z',
+    event_vendor: 'com.snowplowanalytics.snowplow',
+    event_name: 'link_click',
+    event_format: 'jsonschema',
+    event_version: '1-0-0',
+    event_fingerprint: 'e3dbfa9cca0412c3d4052863cefb547f',
+    true_tstamp: '2013-11-26T00:03:57.886Z',
+  };
 
 
 ___NOTES___
