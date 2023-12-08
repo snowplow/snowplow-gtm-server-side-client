@@ -427,6 +427,170 @@ ___TEMPLATE_PARAMETERS___
             ]
           }
         ]
+      },
+      {
+        "type": "GROUP",
+        "name": "spSelfDescGroup",
+        "displayName": "Snowplow Self-describing Event Mapping",
+        "groupStyle": "ZIPPY_OPEN",
+        "subParams": [
+          {
+            "type": "CHECKBOX",
+            "name": "mergeSelfDesc",
+            "checkboxText": "Merge selected Snowplow self-describing event data",
+            "simpleValueType": true,
+            "help": "Whether to allow merging of Snowplow self-describing event data.",
+            "defaultValue": false
+          },
+          {
+            "type": "PARAM_TABLE",
+            "name": "selfDescMergeRules",
+            "displayName": "Self-describing events to merge",
+            "paramTableColumns": [
+              {
+                "param": {
+                  "type": "TEXT",
+                  "name": "schema",
+                  "displayName": "Schema",
+                  "simpleValueType": true,
+                  "help": "\u003cstrong\u003eRequired\u003c/strong\u003e: The schema of the self-describing event to merge.",
+                  "valueValidators": [
+                    {
+                      "type": "NON_EMPTY"
+                    }
+                  ]
+                },
+                "isUnique": true
+              },
+              {
+                "param": {
+                  "type": "SELECT",
+                  "name": "versionPolicy",
+                  "displayName": "Apply to all versions",
+                  "macrosInSelect": false,
+                  "selectItems": [
+                    {
+                      "value": "control",
+                      "displayValue": "False"
+                    },
+                    {
+                      "value": "free",
+                      "displayValue": "True"
+                    }
+                  ],
+                  "simpleValueType": true,
+                  "help": "Whether the rule applies to all versions of the self-describing event.",
+                  "valueValidators": [
+                    {
+                      "type": "NON_EMPTY"
+                    }
+                  ],
+                  "defaultValue": "control"
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "TEXT",
+                  "name": "prefix",
+                  "displayName": "Prefix",
+                  "simpleValueType": true,
+                  "help": "\u003cstrong\u003eOptional\u003c/strong\u003e: Specify a prefix to use for property names when merging.",
+                  "canBeEmptyString": true
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "SELECT",
+                  "name": "mergeLevel",
+                  "displayName": "Merge to",
+                  "macrosInSelect": false,
+                  "selectItems": [
+                    {
+                      "value": "rootLevel",
+                      "displayValue": "Event Properties"
+                    },
+                    {
+                      "value": "customPath",
+                      "displayValue": "Custom"
+                    }
+                  ],
+                  "simpleValueType": true,
+                  "valueValidators": [
+                    {
+                      "type": "NON_EMPTY"
+                    }
+                  ],
+                  "help": "Specify where to merge the self-describing event properties.",
+                  "defaultValue": "rootLevel"
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "TEXT",
+                  "name": "customPath",
+                  "displayName": "Custom path",
+                  "simpleValueType": true,
+                  "help": "\u003cstrong\u003eOptional\u003c/strong\u003e: Specify the custom path to merge the self-describing data to. This option applies only if the \u003cstrong\u003eMerge to\u003c/strong\u003e column is set to \u003cstrong\u003eCustom\u003c/strong\u003e, else the row is considered invalid.",
+                  "canBeEmptyString": true
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "SELECT",
+                  "name": "keepOriginal",
+                  "displayName": "Keep original mapping",
+                  "macrosInSelect": false,
+                  "selectItems": [
+                    {
+                      "value": "keep",
+                      "displayValue": "True"
+                    },
+                    {
+                      "value": "discard",
+                      "displayValue": "False"
+                    }
+                  ],
+                  "simpleValueType": true,
+                  "valueValidators": [
+                    {
+                      "type": "NON_EMPTY"
+                    }
+                  ],
+                  "help": "Specify whether to keep the original mapping of the self-describing event data using its `x-sp-self_describing_event_` prefixed name.",
+                  "defaultValue": "keep"
+                },
+                "isUnique": false
+              },
+              {
+                "param": {
+                  "type": "TEXT",
+                  "name": "customTransformFun",
+                  "displayName": "Custom transformation",
+                  "simpleValueType": true,
+                  "help": "\u003cstrong\u003eOptional\u003c/strong\u003e: Specify a variable returning a function that represents a custom transformation of the self-describing data to the desired object before merging."
+                },
+                "isUnique": false
+              }
+            ],
+            "help": "Using this table you can specify the rules to merge Snowplow self-describing event data to the Common Event.",
+            "enablingConditions": [
+              {
+                "paramName": "mergeSelfDesc",
+                "paramValue": true,
+                "type": "EQUALS"
+              }
+            ],
+            "valueValidators": [
+              {
+                "type": "NON_EMPTY"
+              }
+            ]
+          }
+        ]
       }
     ]
   }
@@ -461,14 +625,19 @@ const makeNumber = require('makeNumber');
 const makeString = require('makeString');
 const Math = require('Math');
 
-const requestPath = getRequestPath();
-const ua = getRequestHeader('user-agent');
-const origin = getRequestHeader('origin');
-const host = getRequestHeader('host');
-const referer = getRequestHeader('referer');
-const anonymous = getRequestHeader('SP-Anonymous');
+const REQUEST_PATH = getRequestPath();
+const UA = getRequestHeader('user-agent');
+const ORIGIN = getRequestHeader('origin');
+const HOST = getRequestHeader('host');
+const REFERER = getRequestHeader('referer');
+const ANONYMOUS = getRequestHeader('SP-Anonymous');
 
-const defCommon = {
+const XSP_PREFIX = 'x-sp-';
+const SELF_DESC_PREFIX = 'self_describing_event_';
+const CONTEXTS_PREFIX = 'contexts_';
+const XSP_SELF_DESC_PREFIX = XSP_PREFIX.concat(SELF_DESC_PREFIX);
+const XSP_CONTEXTS_PREFIX = XSP_PREFIX.concat(CONTEXTS_PREFIX);
+const DEF_COMMON = {
   clientId: [
     {
       priority: 2,
@@ -487,26 +656,89 @@ const defCommon = {
     },
   ],
 };
+// The default transformation for context data
+const DEF_CTX_TRANSFORMATION = (ctxDataArray, event) => {
+  if (ctxDataArray.length !== 1) {
+    // default transformation should not know
+    // what to do with multi-entity context
+    return undefined;
+  }
+
+  return ctxDataArray[0];
+};
+// The default transformation for self-describing event data
+const DEF_SELF_DESC_TRANSFORMATION = (selfDescObj, event) => {
+  return selfDescObj;
+};
+/**
+ * Returns whether a property name is a Snowplow context/entity property.
+ *
+ * @param {string} prop - The property name
+ * @returns {boolean}
+ */
+const IS_CONTEXTS_PROP = (prop) => {
+  return prop.indexOf(XSP_CONTEXTS_PREFIX) === 0;
+};
+
+/**
+ * Returns whether a property name is a Snowplow self-describing event property.
+ *
+ * @param {string} prop - The property name
+ * @returns {boolean}
+ */
+const IS_SELF_DESC_PROP = (prop) => {
+  return prop.indexOf(XSP_SELF_DESC_PREFIX) === 0;
+};
+const CONFIG_MERGE_RULESET = {
+  entity: {
+    type: 'entity',
+    flag: 'mergeEntities',
+    configName: 'entityMergeRules',
+    defaultTransformation: DEF_CTX_TRANSFORMATION,
+    idCondition: IS_CONTEXTS_PROP,
+    continueCondition: (x) => getType(x) !== 'array',
+  },
+  selfDesc: {
+    type: 'selfDesc',
+    flag: 'mergeSelfDesc',
+    configName: 'selfDescMergeRules',
+    defaultTransformation: DEF_SELF_DESC_TRANSFORMATION,
+    idCondition: IS_SELF_DESC_PROP,
+    continueCondition: (x) => getType(x) !== 'object',
+  },
+};
 
 // Helpers
-// Snowplow events are base64 url encoded, so fromBase64 doesn't work, unless...
-const base64urldecode = (data) => {
-  const padding = 4 - (data.length % 4);
+/**
+ * Decodes a base64url encoded string
+ * Snowplow events are base64url encoded, so bare fromBase64 won't work.
+ *
+ * @param {string} str - The string to decode
+ * @returs {string} The decoded string
+ */
+const base64urldecode = (str) => {
+  const padding = 4 - (str.length % 4);
   switch (padding) {
     case 1:
-      data += '=';
+      str += '=';
       break;
     case 2:
-      data += '==';
+      str += '==';
       break;
     case 3:
-      data += '=';
+      str += '=';
       break;
   }
-  const b64Data = data.replace('-', '+').replace('_', '/');
+  const b64Data = str.replace('-', '+').replace('_', '/');
   return fromBase64(b64Data);
 };
 
+/**
+ * Removes null or undefined toplevel properties from an object
+ *
+ * @param {Object} obj - The object to clean
+ * @returs {Object} The resulting object
+ */
 const cleanObject = (obj) => {
   let target = {};
 
@@ -539,10 +771,17 @@ const clone = (obj) => {
   return obj;
 };
 
+/**
+ * Sends the Client response. Calls returnResponse API.
+ *
+ * @param {number} statusCode - The status code of the response
+ * @param {string} body - The body of the response
+ * @param {Object} headers - The headers of the respose
+ */
 const sendResponse = (statusCode, body, headers) => {
   // Prevent CORS errors
-  if (origin) {
-    setResponseHeader('Access-Control-Allow-Origin', origin);
+  if (ORIGIN) {
+    setResponseHeader('Access-Control-Allow-Origin', ORIGIN);
     setResponseHeader('Access-Control-Allow-Credentials', 'true');
     setResponseHeader(
       'Access-Control-Allow-Headers',
@@ -560,6 +799,93 @@ const sendResponse = (statusCode, body, headers) => {
     }
   }
   returnResponse();
+};
+
+/**
+ * Decides whether the provided string is uppercase.
+ *
+ * @param {string} value - The string to check
+ * @returns {boolean} Whether the value is uppercase
+ */
+const isUpper = (value) => {
+  return value === value.toUpperCase() && value !== value.toLowerCase();
+};
+
+/**
+ * Converts a possibly CamelCase string to snake_case
+ *
+ * @param {string} value - The string to transform
+ * @returns {string} The value in snake_case
+ */
+const toSnakeCase = (value) => {
+  let result = '';
+  let previousChar;
+  for (var i = 0; i < value.length; i++) {
+    let currentChar = value.charAt(i);
+    if (isUpper(currentChar) && i > 0 && previousChar !== '_') {
+      result = result + '_' + currentChar;
+    } else {
+      result = result + currentChar;
+    }
+    previousChar = currentChar;
+  }
+  return result;
+};
+
+/**
+ * Parses a Snowplow schema to the expected major version format.
+ *
+ * @param {string} schema - The input schema
+ * @returns {string} The expected/enriched major version format
+ */
+const parseSchemaToMajor = (schema) => {
+  const rexp = createRegex('[./]', 'g');
+  let fixed = schema
+    .replace('iglu:', '')
+    .replace('jsonschema/', '')
+    .replace(rexp, '_');
+
+  for (let i = 0; i < 2; i++) {
+    fixed = fixed.substring(0, fixed.lastIndexOf('-'));
+  }
+
+  return toSnakeCase(fixed).toLowerCase();
+};
+
+/**
+ * Parses a Snowplow schema to the expected major version format,
+ *  also prefixed so as to match the contexts' output of the Snowplow Client.
+ *
+ * @param {string} schema - The input schema
+ * @param {string} spType - 'entity' or 'selfDesc'
+ * @returns {string} The expected output client event property
+ */
+const parseSchemaToMajorKeyValue = (schema, spType) => {
+  const fullPrefix = spType === 'entity' ? XSP_CONTEXTS_PREFIX : XSP_SELF_DESC_PREFIX;
+  const prefix = spType === 'entity' ? CONTEXTS_PREFIX : SELF_DESC_PREFIX;
+  if (schema.indexOf(fullPrefix) === 0) {
+    return schema;
+  }
+  if (schema.indexOf(prefix) === 0) {
+    return XSP_PREFIX + schema;
+  }
+  if (schema.indexOf('iglu:') === 0) {
+    return fullPrefix + parseSchemaToMajor(schema);
+  }
+  return schema;
+};
+
+const getSelfDescribing = (event) => {
+  let selfDescribing;
+  if (event.ue_px) {
+    const decoded = base64urldecode(event.ue_px);
+    if (decoded) {
+      selfDescribing = JSON.parse(decoded);
+    }
+  } else if (event.ue_pr) {
+    selfDescribing = JSON.parse(event.ue_pr);
+  }
+  return selfDescribing ? selfDescribing.data : undefined;
 };
 
 const getEventNameFromSchema = (event) => {
@@ -587,77 +913,6 @@ const getContexts = (event) => {
     contexts = JSON.parse(event.co);
   }
   return contexts ? contexts.data : undefined;
-};
-
-const isUpper = (value) => {
-  return value === value.toUpperCase() && value !== value.toLowerCase();
-};
-
-const toSnakeCase = (value) => {
-  let result = '';
-  let previousChar;
-  for (var i = 0; i < value.length; i++) {
-    let currentChar = value.charAt(i);
-    if (isUpper(currentChar) && i > 0 && previousChar !== '_') {
-      result = result + '_' + currentChar;
-    } else {
-      result = result + currentChar;
-    }
-    previousChar = currentChar;
-  }
-  return result;
-};
-
-const parseSchemaToMajor = (schema) => {
-  const rexp = createRegex('[./]', 'g');
-  let fixed = schema
-    .replace('iglu:', '')
-    .replace('jsonschema/', '')
-    .replace(rexp, '_');
-
-  for (let i = 0; i < 2; i++) {
-    fixed = fixed.substring(0, fixed.lastIndexOf('-'));
-  }
-
-  return toSnakeCase(fixed).toLowerCase();
-};
-
-/**
- * Parses a Snowplow schema to the expected major version format,
- *  also prefixed so as to match the contexts' output of the Snowplow Client.
- *
- * @param {string} schema - The input schema
- * @returns {string} The expected output client event property
- */
-const parseSchemaToMajorKeyValue = (schema) => {
-  if (schema.indexOf('x-sp-contexts_') === 0) return schema;
-  if (schema.indexOf('contexts_') === 0) return 'x-sp-' + schema;
-  if (schema.indexOf('iglu:') === 0) {
-    const rexp = createRegex('[./]', 'g');
-    let fixed = schema
-      .replace('iglu:', '')
-      .replace('jsonschema/', '')
-      .replace(rexp, '_');
-
-    for (let i = 0; i < 2; i++) {
-      fixed = fixed.substring(0, fixed.lastIndexOf('-'));
-    }
-    return 'x-sp-contexts_' + fixed;
-  }
-  return schema;
-};
-
-const getSelfDescribing = (event) => {
-  let selfDescribing;
-  if (event.ue_px) {
-    const decoded = base64urldecode(event.ue_px);
-    if (decoded) {
-      selfDescribing = JSON.parse(decoded);
-    }
-  } else if (event.ue_pr) {
-    selfDescribing = JSON.parse(event.ue_pr);
-  }
-  return selfDescribing ? selfDescribing.data : undefined;
 };
 
 const splitResolution = (resolution) => {
@@ -879,53 +1134,14 @@ const addProperty = (prop, setVal, nest, obj) => {
  */
 const mkCommonProps = (xSpEvent, config) => {
   const locations = {
-    clientId: config.defaultClientId ? defCommon.clientId : asArray(config.clientId),
-    userId: config.defaultUserId ? defCommon.userId : asArray(config.userId),
+    clientId: config.defaultClientId ? DEF_COMMON.clientId : asArray(config.clientId),
+    userId: config.defaultUserId ? DEF_COMMON.userId : asArray(config.userId),
   };
   const locatedValues = {
     clientId: locate(locations.clientId, xSpEvent, makeString),
     userId: locate(locations.userId, xSpEvent, makeString),
   };
   return cleanObject(locatedValues);
-};
-
-/**
- * Merges context entity data to target object according to rule.
- *
- * @param {Object} target - The target object
- * @param {string} prop - The original ctx as property name
- * @param {Object} ctx - The context data array
- * @param {Object} rule - The rule to apply for merging
- * @returns {Object} The target modified with context data merged
- */
-const applyMergeRule = (target, prop, ctx, rule) => {
-  // we pass a clone of target to ensure no side effects to it
-  const transCtx = rule.transformFun(ctx, clone(target));
-  if (getType(transCtx) !== 'object') {
-    // do not proceed
-    return target;
-  }
-
-  for (let prop in transCtx) {
-    if (transCtx.hasOwnProperty(prop)) {
-      const name = rule.prefix ? rule.prefix.concat(prop) : prop;
-      switch (rule.mergeLevel) {
-      case 'customPath':
-        addProperty(name, transCtx[prop], rule.customPath, target);
-        break;
-      case 'rootLevel':
-        target[name] = transCtx[prop];
-        break;
-      default:
-      }
-    }
-  }
-
-  if (rule.keepOriginal === 'discard') {
-    target[prop] = undefined;
-  }
-
-  return target;
 };
 
 /**
@@ -974,28 +1190,22 @@ const cleanRules = (rules) => {
   });
 };
 
-const defaultTransformation = (ctxDataArray, event) => {
-  if (ctxDataArray.length !== 1) {
-    // default transformation should not know
-    // what to do with multi-entity context
-    return undefined;
-  }
-
-  return ctxDataArray[0];
-};
-
 /**
- * Parses the entity inclusion rules from the tag configuration.
+ * Parses the merge rules from the client configuration.
  *
  * @param {Object} config - The Client configuration
  * @returns {Object[]}
  */
-const parseEntityMergeRules = (config) => {
-  const rules = config.entityMergeRules;
+const parseMergeRules = (config, ruleSet) => {
+  if (!ruleSet) {
+    return [];
+  }
+
+  const rules = config[ruleSet.configName];
   if (rules) {
     const validRules = cleanRules(rules);
     const parsedRules = validRules.map((row) => {
-      const schema = parseSchemaToMajorKeyValue(row.schema);
+      const schema = parseSchemaToMajorKeyValue(row.schema, ruleSet.type);
       return {
         ref: row.versionPolicy === 'control' ? schema : mkVersionFree(schema),
         schema: schema,
@@ -1004,22 +1214,12 @@ const parseEntityMergeRules = (config) => {
         mergeLevel: row.mergeLevel,
         customPath: row.customPath || '',
         keepOriginal: row.keepOriginal,
-        transformFun: row.customTransformFun || defaultTransformation,
+        transformFun: row.customTransformFun || ruleSet.defaultTransformation,
       };
     });
     return parsedRules;
   }
   return [];
-};
-
-/**
- * Returns whether a property name is a Snowplow context/entity property.
- *
- * @param {string} prop - The property name
- * @returns {boolean}
- */
-const isSpContextsProp = (prop) => {
-  return prop.indexOf('x-sp-contexts_') === 0;
 };
 
 /**
@@ -1059,6 +1259,98 @@ const getReferenceIdx = (entity, refsList) => {
 };
 
 /**
+ * Merges context entity data to target object according to rule.
+ *
+ * @param {Object} target - The target object
+ * @param {string} prop - The original property name
+ * @param {Object} dataParam - The ctx or self-desc data of interest
+ * @param {Object} rule - The rule to apply for merging
+ * @returns {Object} The target modified after merging is applied
+ */
+const applyMergeRule = (target, prop, dataParam, rule) => {
+  // we pass a clone of target to ensure no side effects to it
+  const transformed = rule.transformFun(dataParam, clone(target));
+  if (getType(transformed) !== 'object') {
+    // do not proceed
+    return target;
+  }
+
+  for (let prop in transformed) {
+    if (transformed.hasOwnProperty(prop)) {
+      const name = rule.prefix ? rule.prefix.concat(prop) : prop;
+      switch (rule.mergeLevel) {
+      case 'customPath':
+        addProperty(name, transformed[prop], rule.customPath, target);
+        break;
+      case 'rootLevel':
+        target[name] = transformed[prop];
+        break;
+      default:
+      }
+    }
+  }
+
+  if (rule.keepOriginal === 'discard') {
+    target[prop] = undefined;
+  }
+
+  return target;
+};
+
+/**
+ * Applies merge rules
+ *
+ * @param {Object} original - The original common event object
+ * @param {Object} target - The target object to be modified
+ * @param {Object} config - The client configuration
+ * @param {string} rulesKey - A string signifying which rule to apply
+ * @returns {Object} The target modified after merging is applied
+ */
+const applyRules = (original, target, config, rulesKey) => {
+  const ruleSet = CONFIG_MERGE_RULESET[rulesKey];
+  if (!ruleSet) {
+    return target;
+  }
+
+  if (config[ruleSet.flag] !== true) {
+    return target;
+  }
+
+  const mergeRules = parseMergeRules(config, ruleSet);
+  const finalRefs = mergeRules.map((r) => r.ref);
+  for (let prop in original) {
+    if (original.hasOwnProperty(prop) && ruleSet.idCondition(prop)) {
+      const keyData = original[prop];
+      if (ruleSet.continueCondition(keyData)) {
+        continue;
+      }
+      const refIdx = getReferenceIdx(prop, finalRefs);
+      if (refIdx >= 0) {
+        const rule = mergeRules[refIdx];
+        applyMergeRule(target, prop, keyData, rule);
+      }
+    }
+  }
+
+  return target;
+};
+
+/**
+ * Higher order function used to derive functions to apply.
+ *
+ * @param {Object} original - The original common event contructed so far
+ * @param {Object} cfg - The Client configuration
+ * @returns {Function} A higher order function
+ */
+function withRulesEnv(original, cfg) {
+  return function(fun, ruleSet) {
+    return function(target) {
+      return fun(original, target, cfg, ruleSet);
+    };
+  };
+}
+
+/**
  * Does the final postprocessing step of the common event. At this stage
  * the commonEvent is exactly at the format the Tags expect.
  * This means that here we can reuse Tags logic.
@@ -1076,25 +1368,16 @@ const postprocess = (commonEvent, event, config) => {
   const fromAdvancedCommon = mkCommonProps(commonEvent, config);
   commonEvent.client_id = fromAdvancedCommon.clientId;
   commonEvent.user_id = fromAdvancedCommon.userId;
-  if (!config.mergeEntities) {
+  if (!config.mergeEntities && !config.mergeSelfDesc) {
     return commonEvent;
   }
-  const mergeRules = parseEntityMergeRules(config);
-  const finalEntityRefs = mergeRules.map((r) => r.ref);
-  const final = clone(commonEvent);
-  for (let prop in commonEvent) {
-    if (commonEvent.hasOwnProperty(prop) && isSpContextsProp(prop)) {
-      const ctxData = commonEvent[prop];
-      if (getType(ctxData) !== 'array') {
-        continue;
-      }
-      const refIdx = getReferenceIdx(prop, finalEntityRefs);
-      if (refIdx >= 0) {
-        const rule = mergeRules[refIdx];
-        applyMergeRule(final, prop, ctxData, rule);
-      }
-    }
-  }
+
+  const withRules = withRulesEnv(commonEvent, config);
+  const final = [
+    withRules(applyRules, 'entity'),
+    withRules(applyRules, 'selfDesc'),
+  ].reduce((acc,curr) => curr(acc), clone(commonEvent));
+
   return final;
 };
 
@@ -1207,6 +1490,13 @@ const addSelfDescPropsTp2 = (commonEvent, event, config) => {
   return commonEvent;
 };
 
+/**
+ * Higher order function used to derive functions to apply.
+ *
+ * @param {Object} ev - The original event received by the Client
+ * @param {Object} cfg - The Client configuration
+ * @returns {Function} A higher order function
+ */
 function withEnv(ev, cfg) {
   return function(fun) {
     return function(commonEv) {
@@ -1225,15 +1515,15 @@ const mapSnowplowEnrichedEventToTagEvent = (event, config) => {
     page_hostname: urlObject ? urlObject.hostname : undefined,
     page_location: event.page_url,
     page_path: urlObject ? urlObject.pathname : undefined,
-    page_referrer: event.page_referrer ? event.page_referrer : referer,
+    page_referrer: event.page_referrer ? event.page_referrer : REFERER,
     page_title: event.page_title,
     screen_resolution: event.dvce_screenwidth ? event.dvce_screenwidth + 'x' + event.dvce_screenheight : undefined,
     viewport_size: event.br_viewwidth ? event.br_viewwidth + 'x' + event.br_viewheight : undefined,
     user_agent: event.useragent,
-    origin: origin,
-    host: host,
-    ip_override: config.ipInclude && !anonymous ? event.user_ipaddress : undefined,
-    'x-sp-anonymous': anonymous,
+    origin: ORIGIN,
+    host: HOST,
+    ip_override: config.ipInclude && !ANONYMOUS ? event.user_ipaddress : undefined,
+    'x-sp-anonymous': ANONYMOUS,
     'x-sp-app_id': event.app_id,
     'x-sp-platform': event.platform,
     'x-sp-etl_tstamp': event.etl_tstamp,
@@ -1382,15 +1672,15 @@ const mapSnowplowTp2EventToTagEvent = (event, config) => {
     page_hostname: urlObject ? urlObject.hostname : undefined,
     page_location: event.url,
     page_path: urlObject ? urlObject.pathname : undefined,
-    page_referrer: event.refr ? event.refr : referer,
+    page_referrer: event.refr ? event.refr : REFERER,
     page_title: event.page,
     screen_resolution: event.res,
     viewport_size: event.vp,
-    user_agent: ua,
-    origin: origin,
-    host: host,
-    ip_override: config.ipInclude && !anonymous ? getRemoteAddress() : undefined,
-    'x-sp-anonymous': anonymous,
+    user_agent: UA,
+    origin: ORIGIN,
+    host: HOST,
+    ip_override: config.ipInclude && !ANONYMOUS ? getRemoteAddress() : undefined,
+    'x-sp-anonymous': ANONYMOUS,
     'x-sp-app_id': event.aid,
     'x-sp-platform': event.p,
     'x-sp-dvce_created_tstamp': event.dtm,
@@ -1451,7 +1741,7 @@ const mapSnowplowTp2EventToTagEvent = (event, config) => {
   return result;
 };
 
-const requestParts = requestPath.split('/');
+const requestParts = REQUEST_PATH.split('/');
 
 if (requestParts.length > 2) {
   const requestedSpJsVersion = requestParts[1];
@@ -1512,9 +1802,9 @@ if (requestParts.length > 2) {
 
 // Check if request is for the Snowplow tracker protocol v2 (tp2) or GET path, or a custom post path
 if (
-  (data.claimGetRequests && requestPath === '/i') ||
-  requestPath === data.customPostPath ||
-  requestPath === '/com.snowplowanalytics.snowplow/tp2'
+  (data.claimGetRequests && REQUEST_PATH === '/i') ||
+  REQUEST_PATH === data.customPostPath ||
+  REQUEST_PATH === '/com.snowplowanalytics.snowplow/tp2'
 ) {
   // Claim the requst
   claimRequest();
@@ -1545,7 +1835,7 @@ if (
 }
 
 // Check if request is for a Snowplow enriched event
-if (requestPath === '/com.snowplowanalytics.snowplow/enriched') {
+if (REQUEST_PATH === '/com.snowplowanalytics.snowplow/enriched') {
   // Claim the requst
   claimRequest();
   log('Snowplow enriched request, claimed...');
@@ -1747,6 +2037,7 @@ scenarios:
       defaultUserId: true,
       defaultClientId: true,
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
 
     // mocks
@@ -1792,6 +2083,7 @@ scenarios:
       defaultUserId: true,
       defaultClientId: true,
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
 
     // mocks
@@ -1837,6 +2129,7 @@ scenarios:
       defaultUserId: true,
       defaultClientId: true,
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
 
     // mocks
@@ -1882,6 +2175,7 @@ scenarios:
       defaultUserId: true,
       defaultClientId: true,
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
 
     // mocks
@@ -1927,6 +2221,7 @@ scenarios:
       defaultUserId: true,
       defaultClientId: true,
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
     const testEvent = page_view_tp2;
 
@@ -2105,6 +2400,7 @@ scenarios:
           customTransformFun: '',
         },
       ],
+      mergeSelfDesc: false,
     };
     const testEvent = json.parse(json.stringify(page_view_tp2));
     testEvent.data[0].uid = 'snow123';
@@ -2265,6 +2561,7 @@ scenarios:
       defaultUserId: true,
       defaultClientId: true,
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
     const testEvent = json.parse(json.stringify(page_view_tp2));
     testEvent.data[0].uid = 'snow123';
@@ -2432,6 +2729,7 @@ scenarios:
       defaultUserId: true,
       defaultClientId: true,
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
     const testEvent = page_view_tp2;
 
@@ -2629,6 +2927,18 @@ scenarios:
           customTransformFun: '',
         },
       ],
+      mergeSelfDesc: true,
+      selfDescMergeRules: [
+        {
+          schema: 'iglu:com.snowplowanalytics.snowplow/media_player_event/jsonschema/1-0-0',
+          versionPolicy: 'control',
+          prefix: 'media_event_',
+          mergeLevel: 'rootLevel',
+          customPath: '',
+          keepOriginal: 'keep',
+          customTransformFun: ''
+        },
+      ],
     };
     const testEvent = mediaEventTp2;
 
@@ -2813,6 +3123,7 @@ scenarios:
       'x-ga-page_id': '586b753d-c961-4852-a164-f641c9a4404f',
       client_id: 'fd97960a-bcb9-4530-8446-e370e1952e5e',
       user_id: 'media_tester',
+      media_event_type: 'pause',
     };
     assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
     assertApi('runContainer').wasCalledWith(
@@ -2834,6 +3145,7 @@ scenarios:
       defaultUserId: true,
       defaultClientId: true,
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
     const testEvent = page_view_mobile;
 
@@ -3005,6 +3317,12 @@ scenarios:
       }
       return result;
     };
+    const funB = (linkClickData, event) => {
+      const result = {};
+      result.target_url = linkClickData.targetUrl;
+      result.element_id = linkClickData.elementId;
+      return result;
+    };
     const mockData = {
       ipInclude: true,
       populateGaProps: true,
@@ -3045,6 +3363,18 @@ scenarios:
           customPath: '',
           keepOriginal: 'discard',
           customTransformFun: funA,
+        },
+      ],
+      mergeSelfDesc: true,
+      selfDescMergeRules: [
+        {
+          schema: 'self_describing_event_com_snowplowanalytics_snowplow_link_click_1',
+          versionPolicy: 'control',
+          prefix: '',
+          mergeLevel: 'customPath',
+          customPath: 'link.click',
+          keepOriginal: 'keep',
+          customTransformFun: funB,
         },
       ],
     };
@@ -3237,6 +3567,12 @@ scenarios:
       ip_override: '92.231.54.234',
       new_client_id: 'GA1',
       something_new: 'test_value',
+      link: {
+        click: {
+          target_url: 'http://www.example.com',
+          element_id: 'exampleLink',
+        },
+      },
     };
     assertThat(resultingCommonEvent).isEqualTo(expectedCommonEvent);
     assertApi('runContainer').wasCalledWith(
@@ -3280,6 +3616,7 @@ scenarios:
         },
       ],
       mergeEntities: false,
+      mergeSelfDesc: false,
     };
     const testEvent = mediaEventTp2;
 
