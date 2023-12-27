@@ -5,20 +5,10 @@ on:
     tags:
     - '*.*.*'
 
+env:
+  TAG_VERSION: ${{ github.ref_name }}
+
 jobs:
-  version:
-    runs-on: ubuntu-22.04
-    outputs:
-      v_tag: ${{ steps.version.outputs.TAG_VERSION }}
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Get tag version
-      id: version
-      run: echo "TAG_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
-
   lint:
     runs-on: ubuntu-22.04
 
@@ -39,8 +29,46 @@ jobs:
     - name: Lint metadata file
       run: yamllint -d relaxed metadata.yaml
 
+  version:
+    needs: ["lint"]
+    runs-on: ubuntu-22.04
+    env:
+      LATEST_CHECKOUT_PATH: 'latest'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Get latest sha from metadata file
+      id: sha
+      env:
+        METADATA_FILEPATH: 'metadata.yaml'
+      run: |
+        echo "LATEST_SHA=$(sed -n -e 's/^.*sha: \(.*\)$/\1/p' "${METADATA_FILEPATH}" | head -n 1)" >> $GITHUB_OUTPUT
+
+    - name: Checkout code with ref as latest sha
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ steps.sha.outputs.LATEST_SHA }}
+        path: ${{ env.LATEST_CHECKOUT_PATH }}
+
+    - name: Get template version
+      id: template
+      env:
+        TEMPLATE_FILEPATH: 'template.tpl'
+      working-directory: ${{ env.LATEST_CHECKOUT_PATH }}
+      run: |
+        echo "TEMPLATE_VERSION=$(sed -n -e 's/^.*VERSION = '\''\(.*\)'\'';/\1/p' "${TEMPLATE_FILEPATH}")" >> $GITHUB_OUTPUT
+
+    - name: Fail if version mismatch
+      run: |
+        if [ "${{ env.TAG_VERSION }}" != "${{ steps.template.outputs.TEMPLATE_VERSION }}" ] ; then
+          echo "Tag version (${{ env.TAG_VERSION }}) doesn't match version in template file (${{ steps.template.outputs.TEMPLATE_VERSION }}) in commit ${{ steps.sha.outputs.LATEST_SHA }}"
+          exit 1
+        fi
+
   release:
-    needs: ["lint", "version"]
+    needs: ["version"]
     runs-on: ubuntu-22.04
 
     steps:
@@ -51,7 +79,7 @@ jobs:
       uses: ncipollo/release-action@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ needs.version.outputs.v_tag }}
-        name: Version ${{ needs.version.outputs.v_tag }}
+        tag: ${{ env.TAG_VERSION }}
+        name: Version ${{ env.TAG_VERSION }}
         draft: false
-        prerelease: ${{ contains(needs.version.outputs.v_tag, 'rc') }}
+        prerelease: ${{ contains(env.TAG_VERSION, 'rc') }}

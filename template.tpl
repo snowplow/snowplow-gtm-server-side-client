@@ -625,6 +625,8 @@ const makeNumber = require('makeNumber');
 const makeString = require('makeString');
 const Math = require('Math');
 
+const VERSION = '0.6.0';
+const CDN = 'https://cdn.jsdelivr.net';
 const REQUEST_PATH = getRequestPath();
 const UA = getRequestHeader('user-agent');
 const ORIGIN = getRequestHeader('origin');
@@ -861,7 +863,8 @@ const parseSchemaToMajor = (schema) => {
  * @returns {string} The expected output client event property
  */
 const parseSchemaToMajorKeyValue = (schema, spType) => {
-  const fullPrefix = spType === 'entity' ? XSP_CONTEXTS_PREFIX : XSP_SELF_DESC_PREFIX;
+  const fullPrefix =
+    spType === 'entity' ? XSP_CONTEXTS_PREFIX : XSP_SELF_DESC_PREFIX;
   const prefix = spType === 'entity' ? CONTEXTS_PREFIX : SELF_DESC_PREFIX;
   if (schema.indexOf(fullPrefix) === 0) {
     return schema;
@@ -1279,13 +1282,13 @@ const applyMergeRule = (target, prop, dataParam, rule) => {
     if (transformed.hasOwnProperty(prop)) {
       const name = rule.prefix ? rule.prefix.concat(prop) : prop;
       switch (rule.mergeLevel) {
-      case 'customPath':
-        addProperty(name, transformed[prop], rule.customPath, target);
-        break;
-      case 'rootLevel':
-        target[name] = transformed[prop];
-        break;
-      default:
+        case 'customPath':
+          addProperty(name, transformed[prop], rule.customPath, target);
+          break;
+        case 'rootLevel':
+          target[name] = transformed[prop];
+          break;
+        default:
       }
     }
   }
@@ -1343,8 +1346,8 @@ const applyRules = (original, target, config, rulesKey) => {
  * @returns {Function} A higher order function
  */
 function withRulesEnv(original, cfg) {
-  return function(fun, ruleSet) {
-    return function(target) {
+  return function (fun, ruleSet) {
+    return function (target) {
       return fun(original, target, cfg, ruleSet);
     };
   };
@@ -1376,7 +1379,7 @@ const postprocess = (commonEvent, event, config) => {
   const final = [
     withRules(applyRules, 'entity'),
     withRules(applyRules, 'selfDesc'),
-  ].reduce((acc,curr) => curr(acc), clone(commonEvent));
+  ].reduce((acc, curr) => curr(acc), clone(commonEvent));
 
   return final;
 };
@@ -1441,7 +1444,6 @@ const populateAdditionalProperties = (commonEvent, event, config) => {
   return commonEvent;
 };
 
-
 const addSelfDescPropsEnriched = (commonEvent, event, config) => {
   for (let prop in event) {
     if (event.hasOwnProperty(prop)) {
@@ -1498,8 +1500,8 @@ const addSelfDescPropsTp2 = (commonEvent, event, config) => {
  * @returns {Function} A higher order function
  */
 function withEnv(ev, cfg) {
-  return function(fun) {
-    return function(commonEv) {
+  return function (fun) {
+    return function (commonEv) {
       return fun(commonEv, ev, cfg);
     };
   };
@@ -1522,7 +1524,8 @@ const mapSnowplowEnrichedEventToTagEvent = (event, config) => {
     user_agent: event.useragent,
     origin: ORIGIN,
     host: HOST,
-    ip_override: config.ipInclude && !ANONYMOUS ? event.user_ipaddress : undefined,
+    ip_override:
+      config.ipInclude && !ANONYMOUS ? event.user_ipaddress : undefined,
     'x-sp-anonymous': ANONYMOUS,
     'x-sp-app_id': event.app_id,
     'x-sp-platform': event.platform,
@@ -1653,8 +1656,8 @@ const mapSnowplowEnrichedEventToTagEvent = (event, config) => {
     withCurrentEnv(addSelfDescPropsEnriched),
     withCurrentEnv(populateAdditionalProperties),
     withCurrentEnv(postprocess),
-    cleanObject
-  ].reduce((acc,curr) => curr(acc),commonEvent);
+    cleanObject,
+  ].reduce((acc, curr) => curr(acc), commonEvent);
 
   return result;
 };
@@ -1679,7 +1682,8 @@ const mapSnowplowTp2EventToTagEvent = (event, config) => {
     user_agent: UA,
     origin: ORIGIN,
     host: HOST,
-    ip_override: config.ipInclude && !ANONYMOUS ? getRemoteAddress() : undefined,
+    ip_override:
+      config.ipInclude && !ANONYMOUS ? getRemoteAddress() : undefined,
     'x-sp-anonymous': ANONYMOUS,
     'x-sp-app_id': event.aid,
     'x-sp-platform': event.p,
@@ -1735,69 +1739,99 @@ const mapSnowplowTp2EventToTagEvent = (event, config) => {
     withCurrentEnv(addSelfDescPropsTp2),
     withCurrentEnv(populateAdditionalProperties),
     withCurrentEnv(postprocess),
-    cleanObject
-  ].reduce((acc,curr) => curr(acc), commonEvent);
+    cleanObject,
+  ].reduce((acc, curr) => curr(acc), commonEvent);
 
   return result;
 };
 
-const requestParts = REQUEST_PATH.split('/');
-
-if (requestParts.length > 2) {
-  const requestedSpJsVersion = requestParts[1];
-  const requestedSpJsName = requestParts[2];
-
-  if (
-    data.serveSpJs &&
-    (requestedSpJsName === data.customSpJsName || requestedSpJsName === 'sp.js')
-  ) {
-    claimRequest();
-    log('Snowplow sp.js request, claimed...');
-
-    const cachedSpJs = templateDataStorage.getItemCopy(
-      'snowplow_js_' + requestedSpJsVersion
-    );
-    const cachedSpJsHeaders =
-      templateDataStorage.getItemCopy(
-        'snowplow_js_headers_' + requestedSpJsVersion
-      ) || {};
-
-    if (!cachedSpJs) {
-      let spJsLocation =
-        'https://cdn.jsdelivr.net/npm/@snowplow/javascript-tracker@' +
-        requestedSpJsVersion +
-        '/dist/sp.js';
-      if (makeInteger(requestedSpJsVersion.charAt(0)) <= 2) {
-        spJsLocation =
-          'https://cdn.jsdelivr.net/gh/snowplow/sp-js-assets@' +
-          requestedSpJsVersion +
-          '/sp.js';
-      }
-
-      sendHttpGet(
-        spJsLocation,
-        (statusCode, headers, body) => {
-          if (statusCode >= 200 && statusCode < 300) {
-            templateDataStorage.setItemCopy(
-              'snowplow_js_' + requestedSpJsVersion,
-              body
-            );
-            templateDataStorage.setItemCopy(
-              'snowplow_js_headers_' + requestedSpJsVersion,
-              body
-            );
-            sendResponse(200, body, headers);
-          } else {
-            log('Failed to download sp.js: ', body);
-            sendResponse(statusCode, body, headers);
-          }
-        },
-        { timeout: 5000 }
-      );
-    } else {
-      sendResponse(200, cachedSpJs, cachedSpJsHeaders);
-    }
+/**
+ * Returns the CDN URL of the requested JS tracker version.
+ *
+ * @param {string} - The requested JS tracker version
+ * @returns {string} The URL
+ */
+const getSpJsLocation = (spJsVersion) => {
+  const file = '/sp.js';
+  if (makeInteger(spJsVersion.charAt(0)) <= 2) {
+    return CDN.concat('/gh/snowplow/sp-js-assets@', spJsVersion, file);
   }
+
+  return CDN.concat(
+    '/npm/@snowplow/javascript-tracker@',
+    spJsVersion,
+    '/dist',
+    file
+  );
+};
+
+/**
+ * Handles the request for JS tracker library.
+ *
+ * @param {Array} requestPathParts - The request path's parts
+ * @param {Object} cfg - The client configuration
+ */
+const handleSpJsRequest = (requestPathParts, cfg) => {
+  const requestedSpJsVersion = requestPathParts[1];
+  const requestedSpJsName = requestPathParts[2];
+  const cacheVersionKey = 'snowplow_gtm_ss_client_version';
+  const contentKey = 'snowplow_js_' + requestedSpJsVersion;
+  const headersKey = 'snowplow_js_headers_' + requestedSpJsVersion;
+
+  // clear cache if necessary
+  const cacheVersion = templateDataStorage.getItemCopy(cacheVersionKey);
+  if (cacheVersion !== VERSION) {
+    templateDataStorage.clear();
+    templateDataStorage.setItemCopy(cacheVersionKey, VERSION);
+  }
+
+  const cachedSpJs = templateDataStorage.getItemCopy(contentKey);
+  const cachedSpJsHeaders = templateDataStorage.getItemCopy(headersKey) || {};
+  if (!cachedSpJs) {
+    const spJsLocation = getSpJsLocation(requestedSpJsVersion);
+    sendHttpGet(
+      spJsLocation,
+      (statusCode, headers, body) => {
+        if (statusCode >= 200 && statusCode < 300) {
+          templateDataStorage.setItemCopy(contentKey, body);
+          templateDataStorage.setItemCopy(headersKey, headers);
+          sendResponse(200, body, headers);
+        } else {
+          log('Failed to download sp.js: ', body);
+          sendResponse(statusCode, body, headers);
+        }
+      },
+      { timeout: 5000 }
+    );
+  } else {
+    sendResponse(200, cachedSpJs, cachedSpJsHeaders);
+  }
+};
+
+/**
+ * Determines if the incoming request is to get the JS tracker library
+ *
+ * @param {Array} requestPathParts - The request path's parts
+ * @param {Object} cfg - The client configuration
+ * @returns {boolean} Whether it is a request for sp.js
+ */
+const isSpJsRequest = (requestPathParts, cfg) => {
+  if (requestPathParts.length < 3) {
+    return false;
+  }
+  const spJsNames = [makeString(cfg.customSpJsName), 'sp.js'];
+  const requestedSpJsName = requestPathParts[2];
+  if (spJsNames.indexOf(requestedSpJsName) === -1) {
+    return false;
+  }
+  return true;
+};
+
+const requestParts = REQUEST_PATH.split('/');
+if (isSpJsRequest(requestParts, data) && data.serveSpJs) {
+  claimRequest();
+  log('Snowplow sp.js request, claimed...');
+  handleSpJsRequest(requestParts, data);
 }
 
 // Check if request is for the Snowplow tracker protocol v2 (tp2) or GET path, or a custom post path
@@ -2041,12 +2075,19 @@ scenarios:
     };
 
     // mocks
-    mock('getRequestPath', () => {
-      return '/3.0.0/sp.js';
+    mock('getRequestPath', '/3.0.0/sp.js');
+    const mockCDNHeaders = { 'Content-Type': 'application/javascript' };
+    let httpGetCallback;
+    mock('sendHttpGet', (url, cb, opts) => {
+      httpGetCallback = cb;
+      cb(200, mockCDNHeaders, 'body');
     });
+    const expectedSpJsKey = 'snowplow_js_3.0.0';
+    const expectedSpJsHeadersKey = 'snowplow_js_headers_3.0.0';
+    const prevSpJsStored = storage.getItemCopy(expectedSpJsKey);
+    assertThat(prevSpJsStored).isNull();
 
     runCode(mockData);
-
     assertApi('claimRequest').wasCalled();
     assertApi('sendHttpGet').wasCalledWith(
       'https://cdn.jsdelivr.net/npm/@snowplow/javascript-tracker@3.0.0/dist/sp.js',
@@ -2068,6 +2109,14 @@ scenarios:
       'true'
     );
     assertApi('returnResponse').wasCalled();
+
+    const nextSpJsStored = storage.getItemCopy(expectedSpJsKey);
+    assertThat(nextSpJsStored).isNotNull();
+    assertThat(nextSpJsStored).isEqualTo('body');
+    assertThat(storage.getItemCopy(expectedSpJsHeadersKey)).isEqualTo(
+      mockCDNHeaders
+    );
+    assertThat(storage.getItemCopy('snowplow_gtm_ss_client_version')).isNotNull();
 - name: v2 spjs proxied
   code: |
     const mockData = {
@@ -2089,6 +2138,11 @@ scenarios:
     // mocks
     mock('getRequestPath', () => {
       return '/2.18.0/sp.js';
+    });
+    let httpGetCallback;
+    mock('sendHttpGet', (url, cb, opts) => {
+      httpGetCallback = cb;
+      cb(200, { 'Content-Type': 'application/javascript' }, 'body');
     });
 
     runCode(mockData);
@@ -2136,6 +2190,11 @@ scenarios:
     mock('getRequestPath', () => {
       return '/3.1.0/example.js';
     });
+    let httpGetCallback;
+    mock('sendHttpGet', (url, cb, opts) => {
+      httpGetCallback = cb;
+      cb(200, { 'Content-Type': 'application/javascript' }, 'body');
+    });
 
     runCode(mockData);
 
@@ -2181,6 +2240,11 @@ scenarios:
     // mocks
     mock('getRequestPath', () => {
       return '/2.18.1/example.js';
+    });
+    let httpGetCallback;
+    mock('sendHttpGet', (url, cb, opts) => {
+      httpGetCallback = cb;
+      cb(200, { 'Content-Type': 'application/javascript' }, 'body');
     });
 
     runCode(mockData);
@@ -3779,9 +3843,10 @@ scenarios:
       expectedCommonEvent,
       runContainerCallback
     );
-setup: |-
+setup: |
   const json = require('JSON');
   const log = require('logToConsole');
+  const storage = require('templateDataStorage');
 
   mock('getRequestHeader', (header) => {
     if (header === 'SP-Anonymous') {
@@ -3793,13 +3858,7 @@ setup: |-
   mock('getCookieValues', (c) => {
     return [c];
   });
-  let httpGetCallback;
-  mock('sendHttpGet', (url, cb, opts) => {
-    httpGetCallback = cb;
-    cb(200, { 'Content-Type': 'application/javascript' }, 'body');
-  });
   mock('claimRequest', function () {});
-
   const page_view_tp2 = {
     schema: 'iglu:com.snowplowanalytics.snowplow/payload_data/jsonschema/1-0-4',
     data: [
