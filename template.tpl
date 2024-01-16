@@ -625,7 +625,7 @@ const makeNumber = require('makeNumber');
 const makeString = require('makeString');
 const Math = require('Math');
 
-const VERSION = '0.6.0';
+const VERSION = '0.6.0-rc3';
 const CDN = 'https://cdn.jsdelivr.net';
 const REQUEST_PATH = getRequestPath();
 const UA = getRequestHeader('user-agent');
