@@ -2,6 +2,10 @@ homepage: "https://www.snowplow.io"
 documentation: "https://docs.snowplow.io/docs/forwarding-events-to-destinations/forwarding-events/google-tag-manager-server-side/snowplow-client-for-gtm-ss/"
 versions:
   # Latest version
+  - sha: ce05851389ccd0d9fabd142c48f089596d5b3ccc
+    changeNotes: |2
+      Fix headers in template data storage (#40)
+  # Older versions
   - sha: fe5b418bb4932d02c9afae67680765ee94a9f8ec
     changeNotes: |2
       Extend copyright to 2022 (#31)
@@ -12,7 +16,6 @@ versions:
       Fix help test about unshredded self-describing event (#25)
       Run template through prettier (#28)
       Fix tests that throw error (#24)
-  # Older versions
   - sha: dacee1e9014574d0b302dff4df5856169faec09e
     changeNotes: Update Documentation Links (#19)
   - sha: 378203ec0235b0f15ed495c61e69faf4e16ea83b
