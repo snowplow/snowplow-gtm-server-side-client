@@ -624,6 +624,7 @@ const makeInteger = require('makeInteger');
 const makeNumber = require('makeNumber');
 const makeString = require('makeString');
 const Math = require('Math');
+const Object = require('Object');
 
 const VERSION = '0.6.0';
 const CDN = 'https://cdn.jsdelivr.net';
@@ -641,31 +642,17 @@ const XSP_SELF_DESC_PREFIX = XSP_PREFIX.concat(SELF_DESC_PREFIX);
 const XSP_CONTEXTS_PREFIX = XSP_PREFIX.concat(CONTEXTS_PREFIX);
 const DEF_COMMON = {
   clientId: [
-    {
-      priority: 2,
-      propPath:
-        'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1.0.userId',
-    },
-    {
-      priority: 1,
-      propPath: 'x-sp-domain_userid',
-    },
+    {priority: 2,propPath:'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1.0.userId'},
+    {priority: 1,propPath: 'x-sp-domain_userid'},
   ],
   userId: [
-    {
-      priority: 1,
-      propPath: 'x-sp-user_id',
-    },
-  ],
-};
+    {priority: 1,propPath: 'x-sp-user_id'},
+  ]};
 // The default transformation for context data
 const DEF_CTX_TRANSFORMATION = (ctxDataArray, event) => {
-  if (ctxDataArray.length !== 1) {
-    // default transformation should not know
-    // what to do with multi-entity context
-    return undefined;
-  }
-
+  // default transformation should not know
+  // what to do with multi-entity context
+  if (ctxDataArray.length !== 1) return undefined;
   return ctxDataArray[0];
 };
 // The default transformation for self-describing event data
@@ -678,9 +665,7 @@ const DEF_SELF_DESC_TRANSFORMATION = (selfDescObj, event) => {
  * @param {string} prop - The property name
  * @returns {boolean}
  */
-const IS_CONTEXTS_PROP = (prop) => {
-  return prop.indexOf(XSP_CONTEXTS_PREFIX) === 0;
-};
+const IS_CONTEXTS_PROP = (prop) => prop.indexOf(XSP_CONTEXTS_PREFIX) === 0;
 
 /**
  * Returns whether a property name is a Snowplow self-describing event property.
@@ -688,9 +673,8 @@ const IS_CONTEXTS_PROP = (prop) => {
  * @param {string} prop - The property name
  * @returns {boolean}
  */
-const IS_SELF_DESC_PROP = (prop) => {
-  return prop.indexOf(XSP_SELF_DESC_PREFIX) === 0;
-};
+const IS_SELF_DESC_PROP = (prop) => prop.indexOf(XSP_SELF_DESC_PREFIX) === 0;
+
 const CONFIG_MERGE_RULESET = {
   entity: {
     type: 'entity',
@@ -707,8 +691,7 @@ const CONFIG_MERGE_RULESET = {
     defaultTransformation: DEF_SELF_DESC_TRANSFORMATION,
     idCondition: IS_SELF_DESC_PROP,
     continueCondition: (x) => getType(x) !== 'object',
-  },
-};
+  }};
 
 // Helpers
 /**
@@ -731,8 +714,7 @@ const base64urldecode = (str) => {
       str += '=';
       break;
   }
-  const b64Data = str.replace('-', '+').replace('_', '/');
-  return fromBase64(b64Data);
+  return fromBase64(str.replace('-', '+').replace('_', '/'));
 };
 
 /**
@@ -743,13 +725,9 @@ const base64urldecode = (str) => {
  */
 const cleanObject = (obj) => {
   let target = {};
-
-  for (let prop in obj) {
-    if (obj.hasOwnProperty(prop) && obj[prop] != null) {
-      target[prop] = obj[prop];
-    }
-  }
-
+  Object.keys(obj).forEach((k) => {
+    if (obj[k] != null) target[k] = obj[k];
+  });
   return target;
 };
 
@@ -763,11 +741,7 @@ const clone = (obj) => {
   const objType = getType(obj);
   if (objType === 'array' || objType === 'object') {
     const result = objType === 'object' ? {} : [];
-    for (let key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        result[key] = clone(obj[key]);
-      }
-    }
+    Object.keys(obj).forEach((k) => {result[k] = clone(obj[k]);});
     return result;
   }
   return obj;
@@ -777,8 +751,8 @@ const clone = (obj) => {
  * Sends the Client response. Calls returnResponse API.
  *
  * @param {number} statusCode - The status code of the response
- * @param {string} body - The body of the response
- * @param {Object} headers - The headers of the respose
+ * @param {string} [body] - The body of the response
+ * @param {Object} [headers] - The headers of the response
  */
 const sendResponse = (statusCode, body, headers) => {
   // Prevent CORS errors
@@ -792,14 +766,8 @@ const sendResponse = (statusCode, body, headers) => {
     setResponseHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
   }
   setResponseStatus(statusCode || 200);
-  if (body) {
-    setResponseBody(body);
-  }
-  if (headers) {
-    for (const key in headers) {
-      setResponseHeader(key, headers[key]);
-    }
-  }
+  if (body) setResponseBody(body);
+  if (headers) Object.keys(headers).forEach((k) => {setResponseHeader(k, headers[k]);});
   returnResponse();
 };
 
@@ -809,9 +777,7 @@ const sendResponse = (statusCode, body, headers) => {
  * @param {string} value - The string to check
  * @returns {boolean} Whether the value is uppercase
  */
-const isUpper = (value) => {
-  return value === value.toUpperCase() && value !== value.toLowerCase();
-};
+const isUpper = (value) => value === value.toUpperCase() && value !== value.toLowerCase();
 
 /**
  * Converts a possibly CamelCase string to snake_case
@@ -824,11 +790,9 @@ const toSnakeCase = (value) => {
   let previousChar;
   for (var i = 0; i < value.length; i++) {
     let currentChar = value.charAt(i);
-    if (isUpper(currentChar) && i > 0 && previousChar !== '_') {
-      result = result + '_' + currentChar;
-    } else {
-      result = result + currentChar;
-    }
+    if (isUpper(currentChar) && i > 0 && previousChar !== '_') result = result + '_' + currentChar;
+    else result = result + currentChar;
+
     previousChar = currentChar;
   }
   return result;
@@ -841,16 +805,10 @@ const toSnakeCase = (value) => {
  * @returns {string} The expected/enriched major version format
  */
 const parseSchemaToMajor = (schema) => {
-  const rexp = createRegex('[./]', 'g');
-  let fixed = schema
-    .replace('iglu:', '')
-    .replace('jsonschema/', '')
-    .replace(rexp, '_');
-
+  let fixed = schema.replace('iglu:', '').replace('jsonschema/', '').replace(createRegex('[./]', 'g'), '_');
   for (let i = 0; i < 2; i++) {
     fixed = fixed.substring(0, fixed.lastIndexOf('-'));
   }
-
   return toSnakeCase(fixed).toLowerCase();
 };
 
@@ -863,18 +821,11 @@ const parseSchemaToMajor = (schema) => {
  * @returns {string} The expected output client event property
  */
 const parseSchemaToMajorKeyValue = (schema, spType) => {
-  const fullPrefix =
-    spType === 'entity' ? XSP_CONTEXTS_PREFIX : XSP_SELF_DESC_PREFIX;
+  const fullPrefix = spType === 'entity' ? XSP_CONTEXTS_PREFIX : XSP_SELF_DESC_PREFIX;
   const prefix = spType === 'entity' ? CONTEXTS_PREFIX : SELF_DESC_PREFIX;
-  if (schema.indexOf(fullPrefix) === 0) {
-    return schema;
-  }
-  if (schema.indexOf(prefix) === 0) {
-    return XSP_PREFIX + schema;
-  }
-  if (schema.indexOf('iglu:') === 0) {
-    return fullPrefix + parseSchemaToMajor(schema);
-  }
+  if (schema.indexOf(fullPrefix) === 0) return schema;
+  if (schema.indexOf(prefix) === 0) return XSP_PREFIX + schema;
+  if (schema.indexOf('iglu:') === 0) return fullPrefix + parseSchemaToMajor(schema);
   return schema;
 };
 
@@ -882,9 +833,7 @@ const getSelfDescribing = (event) => {
   let selfDescribing;
   if (event.ue_px) {
     const decoded = base64urldecode(event.ue_px);
-    if (decoded) {
-      selfDescribing = JSON.parse(decoded);
-    }
+    if (decoded) selfDescribing = JSON.parse(decoded);
   } else if (event.ue_pr) {
     selfDescribing = JSON.parse(event.ue_pr);
   }
@@ -897,21 +846,15 @@ const getEventNameFromSchema = (event) => {
   // Try to find event name from schema
   if (selfDescribing) {
     const schemaParts = selfDescribing.schema.split('/');
-    if (schemaParts.length > 1) {
-      return schemaParts[1];
-    }
+    if (schemaParts.length > 1) return schemaParts[1];
   }
-
-  return undefined;
 };
 
 const getContexts = (event) => {
   let contexts;
   if (event.cx) {
     const decoded = base64urldecode(event.cx);
-    if (decoded) {
-      contexts = JSON.parse(decoded);
-    }
+    if (decoded) contexts = JSON.parse(decoded);
   } else if (event.co) {
     contexts = JSON.parse(event.co);
   }
@@ -920,13 +863,7 @@ const getContexts = (event) => {
 
 const splitResolution = (resolution) => {
   const split_res = resolution ? resolution.split('x') : undefined;
-  if (split_res && split_res.length === 2) {
-    return {
-      width: makeInteger(split_res[0]),
-      height: makeInteger(split_res[1]),
-    };
-  }
-
+  if (split_res && split_res.length === 2) return {width: makeInteger(split_res[0]),height: makeInteger(split_res[1])};
   return { width: undefined, height: undefined };
 };
 
@@ -951,28 +888,15 @@ const getEventName = (event) => {
 
 const payloadToSnowplowEvents = (payload) => {
   const events = JSON.parse(payload);
-
-  if (getType(events) === 'object') {
-    if (getType(events.data) === 'array') {
-      return events.data;
-    }
-  }
-
+  if (getType(events) === 'object' && getType(events.data) === 'array') return events.data;
   return [];
 };
 
 const enrichedPayloadToSnowplowEvents = (payload) => {
   const events = JSON.parse(payload);
   const eventType = getType(events);
-
-  if (eventType === 'array') {
-    return events;
-  }
-
-  if (eventType === 'object') {
-    return [events];
-  }
-
+  if (eventType === 'array') return events;
+  if (eventType === 'object') return [events];
   return [];
 };
 
@@ -986,11 +910,7 @@ const enrichedPayloadToSnowplowEvents = (payload) => {
  * @returns - the corresponding value or undefined
  */
 const getFromPath = (path, obj) => {
-  if (getType(path) === 'string') {
-    const splitPath = path.split('.').filter((p) => !!p);
-    return splitPath.reduce((acc, curr) => acc && acc[curr], obj);
-  }
-  return undefined;
+  if (getType(path) === 'string') return path.split('.').filter((p) => !!p).reduce((a, c) => a && a[c], obj);
 };
 
 /*
@@ -1000,22 +920,14 @@ const getFromPath = (path, obj) => {
  * Each of its rows contains a priority and a *common event* path to look for.
  */
 const locate = (locator, obj, postFunction) => {
-  const ordLoc = locator.sort((x, y) => {
-    const xPriority = makeInteger(x.priority);
-    const yPriority = makeInteger(y.priority);
-    return xPriority > yPriority ? -1 : 1;
-  });
+  const ordLoc = locator.sort((x, y) => makeInteger(x.priority) > makeInteger(y.priority) ? -1 : 1);
   for (let i = 0; i < ordLoc.length; i++) {
-    const row = ordLoc[i];
-    const located = getFromPath(row.propPath, obj);
+    const located = getFromPath(ordLoc[i].propPath, obj);
     if (located !== undefined) {
-      if (getType(postFunction) === 'function') {
-        return postFunction(located);
-      }
+      if (getType(postFunction) === 'function') return postFunction(located);
       return located;
     }
   }
-  return undefined;
 };
 
 /*
@@ -1024,9 +936,7 @@ const locate = (locator, obj, postFunction) => {
  * e.g. for user_id table means "do not set it".
  */
 const asArray = (x) => {
-  if (getType(x) !== 'array') {
-    return [];
-  }
+  if (getType(x) !== 'array') return [];
   return x;
 };
 
@@ -1038,9 +948,7 @@ const asArray = (x) => {
  */
 const isInt = (x) => {
   const y = Math.floor(x);
-  if (y === 0) {
-    return true;
-  }
+  if (y === 0) return true;
   return !!y;
 };
 
@@ -1051,9 +959,7 @@ const isInt = (x) => {
  * @param {string} stringPath - The string to split
  * @returns {string[]} The array of path components
  */
-const splitStringPath = (stringPath) => {
-  return stringPath.split('.').filter((p) => !!p);
-};
+const splitStringPath = (stringPath) => stringPath.split('.').filter((p) => !!p);
 
 /**
  * Sets the value in obj from path (side-effects).
@@ -1079,12 +985,9 @@ const splitStringPath = (stringPath) => {
  */
 const setFromPath = (path, val, obj, target) => {
   const numAsIdx = true;
-  if (!target) {
-    target = obj;
-  }
-  if (getType(path) === 'string') {
-    path = splitStringPath(path);
-  }
+  if (!target) target = obj;
+  if (getType(path) === 'string') path = splitStringPath(path);
+
   if (path.length === 1) {
     target[path[0]] = val;
     return obj;
@@ -1093,14 +996,9 @@ const setFromPath = (path, val, obj, target) => {
     const currType = getType(target[currKey]);
     const nextKey = path[1];
     const isNextNum = isInt(nextKey);
-    if (
-      (!isNextNum && currType !== 'object') ||
-      (isNextNum && !numAsIdx && currType !== 'object')
-    ) {
-      target[currKey] = {};
-    } else if (isNextNum && numAsIdx && currType !== 'array') {
-      target[currKey] = [];
-    }
+    if ((!isNextNum && currType !== 'object') || (isNextNum && !numAsIdx && currType !== 'object')) target[currKey] = {};
+    else if (isNextNum && numAsIdx && currType !== 'array') target[currKey] = [];
+
     return setFromPath(path.slice(1), val, obj, target[currKey]);
   }
   return obj;
@@ -1120,9 +1018,7 @@ const setFromPath = (path, val, obj, target) => {
 const addProperty = (prop, setVal, nest, obj) => {
   if (nest && getType(nest) === 'string') {
     const valType = getType(getFromPath(nest, obj));
-    if (['object', 'array'].indexOf(valType) < 0) {
-      setFromPath(nest, {}, obj);
-    }
+    if (['object', 'array'].indexOf(valType) < 0) setFromPath(nest, {}, obj);
     setFromPath(prop, setVal, getFromPath(nest, obj));
   } else {
     setFromPath(prop, setVal, obj);
@@ -1140,11 +1036,10 @@ const mkCommonProps = (xSpEvent, config) => {
     clientId: config.defaultClientId ? DEF_COMMON.clientId : asArray(config.clientId),
     userId: config.defaultUserId ? DEF_COMMON.userId : asArray(config.userId),
   };
-  const locatedValues = {
+  return cleanObject({
     clientId: locate(locations.clientId, xSpEvent, makeString),
     userId: locate(locations.userId, xSpEvent, makeString),
-  };
-  return cleanObject(locatedValues);
+  });
 };
 
 /**
@@ -1159,10 +1054,7 @@ const mkCommonProps = (xSpEvent, config) => {
  * @param {string} schemaRef - The schema
  * @returns {string}
  */
-const mkVersionFree = (schemaRef) => {
-  const versionRexp = createRegex('_[0-9]+$');
-  return schemaRef.replace(versionRexp, '');
-};
+const mkVersionFree = (schemaRef) => schemaRef.replace(createRegex('_[0-9]+$'), '');
 
 /**
  * Filters out invalid rules to avoid unintended behavior.
@@ -1174,20 +1066,10 @@ const mkVersionFree = (schemaRef) => {
 const cleanRules = (rules) => {
   const lastNumRexp = createRegex('[0-9]$');
   return rules.filter((row) => {
-    const valid = {
-      versionLogic: true,
-      customLogic: true,
-      functionLogic: true,
-    };
-    if (row.versionPolicy === 'control') {
-      valid.versionLogic = !!row.schema.match(lastNumRexp);
-    }
-    if (row.mergeLevel === 'customPath') {
-      valid.customLogic = row.customPath !== '';
-    }
-    if (row.customTransformFun) {
-      valid.functionLogic = getType(row.customTransformFun) === 'function';
-    }
+    const valid = {versionLogic: true,customLogic: true,functionLogic: true};
+    if (row.versionPolicy === 'control') valid.versionLogic = !!row.schema.match(lastNumRexp);
+    if (row.mergeLevel === 'customPath') valid.customLogic = row.customPath !== '';
+    if (row.customTransformFun) valid.functionLogic = getType(row.customTransformFun) === 'function';
 
     return valid.versionLogic && valid.customLogic && valid.functionLogic;
   });
@@ -1200,14 +1082,10 @@ const cleanRules = (rules) => {
  * @returns {Object[]}
  */
 const parseMergeRules = (config, ruleSet) => {
-  if (!ruleSet) {
-    return [];
-  }
-
+  if (!ruleSet) return [];
   const rules = config[ruleSet.configName];
   if (rules) {
-    const validRules = cleanRules(rules);
-    const parsedRules = validRules.map((row) => {
+    const parsedRules = cleanRules(rules).map((row) => {
       const schema = parseSchemaToMajorKeyValue(row.schema, ruleSet.type);
       return {
         ref: row.versionPolicy === 'control' ? schema : mkVersionFree(schema),
@@ -1247,16 +1125,13 @@ const parseMergeRules = (config, ruleSet) => {
  *
  * @param {string} entity - The entity name to match
  * @param {string[]} refsList - An array of references
- * @returns {integer}
+ * @returns {number} The index for the entity in the array
  */
 const getReferenceIdx = (entity, refsList) => {
-  const versionFreeEntity = mkVersionFree(entity);
   for (let i = 0; i < refsList.length; i++) {
     const okControl = entity.indexOf(refsList[i]) === 0;
-    const okFree = versionFreeEntity === mkVersionFree(refsList[i]);
-    if (okControl && okFree) {
-      return i;
-    }
+    const okFree = mkVersionFree(entity) === mkVersionFree(refsList[i]);
+    if (okControl && okFree) return i;
   }
   return -1;
 };
@@ -1273,29 +1148,22 @@ const getReferenceIdx = (entity, refsList) => {
 const applyMergeRule = (target, prop, dataParam, rule) => {
   // we pass a clone of target to ensure no side effects to it
   const transformed = rule.transformFun(dataParam, clone(target));
-  if (getType(transformed) !== 'object') {
-    // do not proceed
-    return target;
-  }
+  if (getType(transformed) !== 'object') return target; // do not proceed
 
-  for (let prop in transformed) {
-    if (transformed.hasOwnProperty(prop)) {
-      const name = rule.prefix ? rule.prefix.concat(prop) : prop;
-      switch (rule.mergeLevel) {
-        case 'customPath':
-          addProperty(name, transformed[prop], rule.customPath, target);
-          break;
-        case 'rootLevel':
-          target[name] = transformed[prop];
-          break;
-        default:
-      }
+  Object.keys(transformed).forEach((prop) => {
+    const name = rule.prefix ? rule.prefix.concat(prop) : prop;
+    switch (rule.mergeLevel) {
+      case 'customPath':
+        addProperty(name, transformed[prop], rule.customPath, target);
+        break;
+      case 'rootLevel':
+        target[name] = transformed[prop];
+        break;
+      default:
     }
-  }
+  });
 
-  if (rule.keepOriginal === 'discard') {
-    target[prop] = undefined;
-  }
+  if (rule.keepOriginal === 'discard') target[prop] = undefined;
 
   return target;
 };
@@ -1311,30 +1179,21 @@ const applyMergeRule = (target, prop, dataParam, rule) => {
  */
 const applyRules = (original, target, config, rulesKey) => {
   const ruleSet = CONFIG_MERGE_RULESET[rulesKey];
-  if (!ruleSet) {
-    return target;
-  }
-
-  if (config[ruleSet.flag] !== true) {
-    return target;
-  }
+  if (!ruleSet) return target;
+  if (config[ruleSet.flag] !== true) return target;
 
   const mergeRules = parseMergeRules(config, ruleSet);
   const finalRefs = mergeRules.map((r) => r.ref);
-  for (let prop in original) {
-    if (original.hasOwnProperty(prop) && ruleSet.idCondition(prop)) {
-      const keyData = original[prop];
-      if (ruleSet.continueCondition(keyData)) {
-        continue;
-      }
-      const refIdx = getReferenceIdx(prop, finalRefs);
+
+  Object.entries(original).forEach((pair) => {
+    if (ruleSet.idCondition(pair[0]) && !ruleSet.continueCondition(pair[1])) {
+      const refIdx = getReferenceIdx(pair[0], finalRefs);
       if (refIdx >= 0) {
         const rule = mergeRules[refIdx];
-        applyMergeRule(target, prop, keyData, rule);
+        applyMergeRule(target, pair[0], pair[1], rule);
       }
     }
-  }
-
+  });
   return target;
 };
 
@@ -1371,9 +1230,7 @@ const postprocess = (commonEvent, event, config) => {
   const fromAdvancedCommon = mkCommonProps(commonEvent, config);
   commonEvent.client_id = fromAdvancedCommon.clientId;
   commonEvent.user_id = fromAdvancedCommon.userId;
-  if (!config.mergeEntities && !config.mergeSelfDesc) {
-    return commonEvent;
-  }
+  if (!config.mergeEntities && !config.mergeSelfDesc) return commonEvent;
 
   const withRules = withRulesEnv(commonEvent, config);
   const final = [
@@ -1386,13 +1243,8 @@ const postprocess = (commonEvent, event, config) => {
 
 const populateAdditionalProperties = (commonEvent, event, config) => {
   // user_data
-  if (
-    commonEvent['x-sp-contexts_com_google_tag-manager_server-side_user_data_1']
-  ) {
-    const userData =
-      commonEvent[
-        'x-sp-contexts_com_google_tag-manager_server-side_user_data_1'
-      ][0];
+  if (commonEvent['x-sp-contexts_com_google_tag-manager_server-side_user_data_1']) {
+    const userData = commonEvent['x-sp-contexts_com_google_tag-manager_server-side_user_data_1'][0];
     commonEvent.user_data = cleanObject({
       email_address: userData.email_address,
       phone_number: userData.phone_number,
@@ -1414,13 +1266,8 @@ const populateAdditionalProperties = (commonEvent, event, config) => {
   let sessionId = commonEvent['x-sp-domain_sessionid'];
   let sessionIndex = commonEvent['x-sp-domain_sessionidx'];
 
-  if (
-    commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1']
-  ) {
-    const mobileSessionData =
-      commonEvent[
-        'x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1'
-      ][0];
+  if (commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1']) {
+    const mobileSessionData = commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_client_session_1'][0];
     sessionId = mobileSessionData.sessionId;
     sessionIndex = mobileSessionData.sessionIndex;
   }
@@ -1431,13 +1278,8 @@ const populateAdditionalProperties = (commonEvent, event, config) => {
     commonEvent['x-ga-mp2-seg'] = '1';
     commonEvent['x-ga-protocol_version'] = '2';
 
-    if (
-      commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1']
-    ) {
-      commonEvent['x-ga-page_id'] =
-        commonEvent[
-          'x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1'
-        ][0].id;
+    if (commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1']) {
+      commonEvent['x-ga-page_id'] = commonEvent['x-sp-contexts_com_snowplowanalytics_snowplow_web_page_1'][0].id;
     }
   }
 
@@ -1445,49 +1287,27 @@ const populateAdditionalProperties = (commonEvent, event, config) => {
 };
 
 const addSelfDescPropsEnriched = (commonEvent, event, config) => {
-  for (let prop in event) {
-    if (event.hasOwnProperty(prop)) {
-      if (prop.indexOf('unstruct_event') === 0) {
-        commonEvent[
-          'x-sp-self_describing_event' + prop.replace('unstruct_event', '')
-        ] = event[prop];
-      }
-
-      if (prop.indexOf('contexts_') === 0) {
-        commonEvent['x-sp-' + prop] = event[prop];
-      }
-    }
-  }
+  Object.keys(event).forEach((prop) => {
+    if (prop.indexOf('unstruct_event') === 0) commonEvent[XSP_SELF_DESC_PREFIX + prop.replace('unstruct_event_', '')] = event[prop];
+    if (prop.indexOf('contexts_') === 0) commonEvent[XSP_PREFIX + prop] = event[prop];
+  });
   return commonEvent;
 };
 
 const addSelfDescPropsTp2 = (commonEvent, event, config) => {
   const selfDescribing = getSelfDescribing(event);
   if (selfDescribing) {
-    commonEvent[
-      'x-sp-self_describing_event_' + parseSchemaToMajor(selfDescribing.schema)
-    ] = selfDescribing.data;
-
-    if (config.includeOriginalSelfDescribingEvent) {
-      commonEvent['x-sp-self_describing_event'] = selfDescribing;
-    }
+    commonEvent[XSP_SELF_DESC_PREFIX + parseSchemaToMajor(selfDescribing.schema)] = selfDescribing.data;
+    if (config.includeOriginalSelfDescribingEvent) commonEvent['x-sp-self_describing_event'] = selfDescribing;
   }
-
   const contexts = getContexts(event);
   if (contexts) {
     contexts.forEach((c) => {
       const schemaKey = parseSchemaToMajor(c.schema);
-
-      if (commonEvent['x-sp-contexts_' + schemaKey]) {
-        commonEvent['x-sp-contexts_' + schemaKey].push(c.data);
-      } else {
-        commonEvent['x-sp-contexts_' + schemaKey] = [c.data];
-      }
+      if (commonEvent[XSP_CONTEXTS_PREFIX + schemaKey]) commonEvent[XSP_CONTEXTS_PREFIX + schemaKey].push(c.data);
+      else commonEvent[XSP_CONTEXTS_PREFIX + schemaKey] = [c.data];
     });
-
-    if (config.includeOriginalContextsArray) {
-      commonEvent['x-sp-contexts'] = contexts;
-    }
+    if (config.includeOriginalContextsArray) commonEvent['x-sp-contexts'] = contexts;
   }
   return commonEvent;
 };
@@ -1753,16 +1573,9 @@ const mapSnowplowTp2EventToTagEvent = (event, config) => {
  */
 const getSpJsLocation = (spJsVersion) => {
   const file = '/sp.js';
-  if (makeInteger(spJsVersion.charAt(0)) <= 2) {
-    return CDN.concat('/gh/snowplow/sp-js-assets@', spJsVersion, file);
-  }
+  if (makeInteger(spJsVersion.charAt(0)) <= 2) return CDN.concat('/gh/snowplow/sp-js-assets@', spJsVersion, file);
 
-  return CDN.concat(
-    '/npm/@snowplow/javascript-tracker@',
-    spJsVersion,
-    '/dist',
-    file
-  );
+  return CDN.concat('/npm/@snowplow/javascript-tracker@',spJsVersion,'/dist',file);
 };
 
 /**
@@ -1774,11 +1587,9 @@ const getSpJsLocation = (spJsVersion) => {
 const filterSpJsHeaders = (headers) => {
   const allowHeaders = ['content-type'];
   const finHeaders = {};
-  for (let header in headers) {
-    if (headers.hasOwnProperty(header) && allowHeaders.indexOf(header.toLowerCase()) > -1) {
-      finHeaders[header] = headers[header];
-    }
-  }
+  Object.keys(headers).forEach((header) => {
+    if (allowHeaders.indexOf(header.toLowerCase()) > -1) finHeaders[header] = headers[header];
+  });
   return finHeaders;
 };
 
@@ -1845,7 +1656,7 @@ const isSpJsRequest = (requestPathParts, cfg) => {
 };
 
 const requestParts = REQUEST_PATH.split('/');
-if (isSpJsRequest(requestParts, data) && data.serveSpJs) {
+if (data.serveSpJs && isSpJsRequest(requestParts, data)) {
   claimRequest();
   log('Snowplow sp.js request, claimed...');
   handleSpJsRequest(requestParts, data);
@@ -1860,8 +1671,7 @@ if (
   // Claim the requst
   claimRequest();
   log('Snowplow tracker protocol request, claimed...');
-  let responseBody;
-  let events;
+  let responseBody, events;
 
   const requestMethod = getRequestMethod();
   if (requestMethod === 'GET') {
@@ -1890,8 +1700,7 @@ if (REQUEST_PATH === '/com.snowplowanalytics.snowplow/enriched') {
   // Claim the requst
   claimRequest();
   log('Snowplow enriched request, claimed...');
-  let responseBody;
-  let events;
+  let responseBody, events;
 
   const requestMethod = getRequestMethod();
   if (requestMethod === 'POST') {
@@ -2152,9 +1961,7 @@ scenarios:
     };
 
     // mocks
-    mock('getRequestPath', () => {
-      return '/2.18.0/sp.js';
-    });
+    mock('getRequestPath', () => '/2.18.0/sp.js');
     let httpGetCallback;
     mock('sendHttpGet', (url, cb, opts) => {
       httpGetCallback = cb;
@@ -2169,20 +1976,11 @@ scenarios:
       httpGetCallback,
       { timeout: 5000 }
     );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Content-Type',
-      'application/javascript'
-    );
+    assertApi('setResponseHeader').wasCalledWith('Content-Type', 'application/javascript');
     assertApi('setResponseBody').wasCalledWith('body');
     assertApi('getRequestHeader').wasCalledWith('origin');
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Origin',
-      'origin'
-    );
-    assertApi('setResponseHeader').wasCalledWith(
-      'Access-Control-Allow-Credentials',
-      'true'
-    );
+    assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Origin', 'origin');
+    assertApi('setResponseHeader').wasCalledWith('Access-Control-Allow-Credentials', 'true');
     assertApi('returnResponse').wasCalled();
 - name: v3 spjs with custom name proxied
   code: |
