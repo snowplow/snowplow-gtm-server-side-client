@@ -710,9 +710,6 @@ const base64urldecode = (str) => {
     case 2:
       str += '==';
       break;
-    case 3:
-      str += '=';
-      break;
   }
   return fromBase64(str.replace('-', '+').replace('_', '/'));
 };
