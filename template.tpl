@@ -1652,15 +1652,35 @@ const isSpJsRequest = (requestPathParts, cfg) => {
   return true;
 };
 
+// Main
 const requestParts = REQUEST_PATH.split('/');
-if (data.serveSpJs && isSpJsRequest(requestParts, data)) {
-  claimRequest();
-  log('Snowplow sp.js request, claimed...');
-  handleSpJsRequest(requestParts, data);
-}
 
-// Check if request is for the Snowplow tracker protocol v2 (tp2) or GET path, or a custom post path
-if (
+// Check if request is for a Snowplow enriched event
+if (REQUEST_PATH === '/com.snowplowanalytics.snowplow/enriched') {
+  // Claim the requst
+  claimRequest();
+  log('Snowplow enriched request, claimed...');
+  let responseBody, events;
+
+  const requestMethod = getRequestMethod();
+  if (requestMethod === 'POST') {
+    events = enrichedPayloadToSnowplowEvents(getRequestBody());
+    responseBody = 'ok';
+  } else if (requestMethod === 'OPTIONS') {
+    sendResponse(200);
+  }
+
+  if (events) {
+    events.forEach((event) => {
+      // Pass the event to a virtual container
+      runContainer(mapSnowplowEnrichedEventToTagEvent(event, data), () => {
+        log('Tags complete, sending response...');
+        sendResponse(200, responseBody);
+      });
+    });
+  }
+
+} else if ( // Check if request is for the Snowplow tracker protocol v2 (tp2) or GET path, or a custom post path
   (data.claimGetRequests && REQUEST_PATH === '/i') ||
   REQUEST_PATH === data.customPostPath ||
   REQUEST_PATH === '/com.snowplowanalytics.snowplow/tp2'
@@ -1690,32 +1710,11 @@ if (
       });
     });
   }
-}
 
-// Check if request is for a Snowplow enriched event
-if (REQUEST_PATH === '/com.snowplowanalytics.snowplow/enriched') {
-  // Claim the requst
+} else if (data.serveSpJs && isSpJsRequest(requestParts, data)) {
   claimRequest();
-  log('Snowplow enriched request, claimed...');
-  let responseBody, events;
-
-  const requestMethod = getRequestMethod();
-  if (requestMethod === 'POST') {
-    events = enrichedPayloadToSnowplowEvents(getRequestBody());
-    responseBody = 'ok';
-  } else if (requestMethod === 'OPTIONS') {
-    sendResponse(200);
-  }
-
-  if (events) {
-    events.forEach((event) => {
-      // Pass the event to a virtual container
-      runContainer(mapSnowplowEnrichedEventToTagEvent(event, data), () => {
-        log('Tags complete, sending response...');
-        sendResponse(200, responseBody);
-      });
-    });
-  }
+  log('Snowplow sp.js request, claimed...');
+  handleSpJsRequest(requestParts, data);
 }
 
 
