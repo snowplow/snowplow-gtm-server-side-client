@@ -711,7 +711,7 @@ const base64urldecode = (str) => {
       str += '==';
       break;
   }
-  return fromBase64(str.replace('-', '+').replace('_', '/'));
+  return fromBase64(str.replace(createRegex('-', 'g'), '+').replace(createRegex('_', 'g'), '/'));
 };
 
 /**
@@ -2747,6 +2747,42 @@ scenarios:
       expectedCommonEvent,
       runContainerCallback
     );
+- name: Container run with base64url contexts containing multiple - and _
+  code: |
+    const mockData = {
+      ipInclude: true,
+      populateGaProps: true,
+      serveSpJs: true,
+      customSpJsName: 'example.js',
+      customPostPath: 'custom/path',
+      claimGetRequests: true,
+      includeOriginalTp2Event: true,
+      includeOriginalSelfDescribingEvent: false,
+      includeOriginalContextsArray: false,
+      defaultUserId: true,
+      defaultClientId: true,
+      mergeEntities: false,
+      mergeSelfDesc: false,
+    };
+    const testEvent = page_view_tp2;
+    // base64url with two '-' and two '_' (curly apostrophes in the byline)
+    testEvent.data[0].cx = 'eyJzY2hlbWEiOiJpZ2x1OmNvbS5zbm93cGxvd2FuYWx5dGljcy5zbm93cGxvdy9jb250ZXh0cy9qc29uc2NoZW1hLzEtMC0wIiwiZGF0YSI6W3sic2NoZW1hIjoiaWdsdTpjb20uYWNtZS9hcnRpY2xlL2pzb25zY2hlbWEvMS0wLTAiLCJkYXRhIjp7ImJ5bGluZSI6Ik_igJlCcmllbiBTbm93cGxvd-KAmXMgT-KAmUJyaWVuIE_igJlCcmllbiJ9fV19';
+
+    // mocks
+    mock('getRequestPath', '/i');
+    mock('getRequestQueryParameters', testEvent.data[0]);
+    mock('getRequestMethod', 'GET');
+    let resultingCommonEvent;
+    mock('runContainer', (e, cb) => {
+      resultingCommonEvent = e;
+      cb();
+    });
+
+    runCode(mockData);
+
+    assertThat(resultingCommonEvent['x-sp-contexts_com_acme_article_1']).isEqualTo([
+      { byline: 'O’Brien Snowplow’s O’Brien O’Brien' },
+    ]);
 - name: Container run with user_data context
   code: |
     const mockData = {
